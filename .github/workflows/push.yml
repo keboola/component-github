@@ -9,7 +9,7 @@ on:
 concurrency: ci-${{ github.ref }}  # to avoid tag collisions in the ECR
 env:
   # repository variables:
-  KBC_DEVELOPERPORTAL_APP: keboola.keboola.ex-github-v2
+  KBC_DEVELOPERPORTAL_APP: keboola.ex-github-v2
   KBC_DEVELOPERPORTAL_VENDOR: keboola
   DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
   KBC_DEVELOPERPORTAL_USERNAME: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
