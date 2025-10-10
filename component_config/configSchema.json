@@ -1,19 +1,55 @@
 {
   "type": "object",
-  "title": "extractor configuration",
+  "title": "GitHub Extractor Configuration",
   "required": [
-    "print_hello"
+    "#github_token",
+    "endpoints"
   ],
   "properties": {
-    "print_hello": {
-      "type": "boolean",
-      "title": "Print Hello",
-      "propertyOrder": 1
+    "authorization": {
+      "title": "Authorization",
+      "type": "object",
+      "required": [
+        "#github_token"
+      ],
+      "propertyOrder": 10,
+      "properties": {
+        "#github_token": {
+          "title": "GitHub Personal Access Token",
+          "type": "string",
+          "format": "password",
+          "propertyOrder": 10,
+          "description": "GitHub Personal Access Token with appropriate permissions. Create one at <a href='https://github.com/settings/tokens' target='_blank'>GitHub Settings > Developer settings > Personal access tokens</a>. Required scopes: read:org, repo"
+        }
+      }
+    },
+    "endpoints": {
+      "title": "Endpoints to Extract",
+      "description": "Select which GitHub data endpoints you want to extract",
+      "type": "array",
+      "format": "select",
+      "uniqueItems": true,
+      "minItems": 1,
+      "items": {
+        "enum": [
+          "organizations",
+          "organization_members",
+          "organization_teams",
+          "organization_repositories",
+          "repository_issues",
+          "repository_commits"
+        ],
+        "type": "string"
+      },
+      "propertyOrder": 20
     },
     "debug": {
       "type": "boolean",
-      "title": "Debug",
-      "propertyOrder": 2
+      "title": "Debug Mode",
+      "format": "checkbox",
+      "default": false,
+      "propertyOrder": 1000,
+      "description": "Enable verbose logging for troubleshooting"
     }
   }
 }

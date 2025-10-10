@@ -1,1 +1,43 @@
-{}
+{
+  "type": "object",
+  "title": "GitHub Extraction Configuration Row",
+  "required": [],
+  "properties": {
+    "organization_name": {
+      "title": "Organization Name",
+      "type": "string",
+      "propertyOrder": 30,
+      "description": "GitHub organization name (required for organization-related endpoints)"
+    },
+    "repository_owner": {
+      "title": "Repository Owner",
+      "type": "string",
+      "propertyOrder": 40,
+      "description": "Repository owner username or organization name (required for repository-specific endpoints)"
+    },
+    "repository_name": {
+      "title": "Repository Name",
+      "type": "string",
+      "propertyOrder": 50,
+      "description": "Repository name (required for repository-specific endpoints)"
+    },
+    "issue_state": {
+      "title": "Issue State",
+      "type": "string",
+      "enum": [
+        "all",
+        "open",
+        "closed"
+      ],
+      "default": "all",
+      "propertyOrder": 60,
+      "description": "Filter issues by state (for repository_issues endpoint)"
+    },
+    "commits_since": {
+      "title": "Commits Since",
+      "type": "string",
+      "propertyOrder": 70,
+      "description": "Only fetch commits after this date (ISO 8601 format, e.g., 2024-01-01T00:00:00Z). Leave empty for all commits (for repository_commits endpoint)"
+    }
+  }
+}
