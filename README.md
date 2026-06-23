@@ -1,4 +1,4 @@
-Component Github
+ex-github-v2
 =============
 
 Description
@@ -64,8 +64,8 @@ Clone this repository, initialize the workspace, and run the component using the
 commands:
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-git clone https://github.com/keboola/component-github.git component-component-github
-cd component-component-github
+git clone  component-ex-github-v2
+cd component-ex-github-v2
 docker-compose build
 docker-compose run --rm dev
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

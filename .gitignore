@@ -7,6 +7,16 @@ __pycache__/
 *.py[cod]
 *.egg-info
 venv
+.claude
+.claude/loop.md
 
 # kbc datafolder
-data
+/data
+
+# local build-lifecycle tracker (never commit)
+docs/superpowers/*-lifecycle.md
+
+# vcr datadirtesting
+secrets.json
+tests/functional/*/source/data/out/
+tests/functional/*/source/data/in/
