@@ -1,19 +1,68 @@
 {
   "type": "object",
-  "title": "extractor configuration",
-  "required": [
-    "print_hello"
-  ],
+  "title": "GitHub Extractor — Root Configuration",
+  "required": ["auth_type"],
   "properties": {
-    "print_hello": {
+    "auth_type": {
+      "type": "string",
+      "title": "Authentication Method",
+      "enum": ["pat", "oauth"],
+      "options": {
+        "enum_titles": ["Personal Access Token", "OAuth"]
+      },
+      "default": "pat",
+      "propertyOrder": 10
+    },
+    "#github_token": {
+      "type": "string",
+      "title": "GitHub Personal Access Token",
+      "format": "password",
+      "description": "Create a classic (<code>ghp_…</code>) or fine-grained (<code>github_pat_…</code>) PAT in <strong>GitHub → Settings → Developer settings → Personal access tokens</strong>. Required scopes: <code>read:org</code>, <code>repo</code>. If your organization enforces SAML SSO you must also SSO-authorize the token before use.",
+      "propertyOrder": 20,
+      "options": {
+        "dependencies": {
+          "auth_type": ["pat"]
+        }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "title": "GitHub OAuth",
+      "propertyOrder": 30,
+      "options": {
+        "dependencies": {
+          "auth_type": ["oauth"]
+        }
+      },
+      "properties": {
+        "oauth_api": {
+          "type": "object",
+          "title": "OAuth Credentials",
+          "properties": {
+            "id": {
+              "type": "string",
+              "title": "OAuth API ID"
+            },
+            "version": {
+              "type": "integer",
+              "title": "OAuth Version",
+              "default": 3
+            }
+          }
+        }
+      }
+    },
+    "incremental": {
       "type": "boolean",
-      "title": "Print Hello",
-      "propertyOrder": 1
+      "title": "Incremental Output",
+      "default": true,
+      "propertyOrder": 100
     },
     "debug": {
       "type": "boolean",
-      "title": "Debug",
-      "propertyOrder": 2
+      "title": "Debug Mode",
+      "default": false,
+      "propertyOrder": 1000
     }
   }
 }

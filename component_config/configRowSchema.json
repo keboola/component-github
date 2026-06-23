@@ -1,1 +1,268 @@
-{}
+{
+  "type": "object",
+  "title": "GitHub Extractor — Row Configuration",
+  "properties": {
+    "endpoint": {
+      "type": "string",
+      "title": "Data Source",
+      "enum": [
+        "user",
+        "user_repos",
+        "user_orgs",
+        "organizations",
+        "organization_members",
+        "organization_teams",
+        "team_members",
+        "organization_repositories",
+        "organization_events",
+        "organization_outside_collaborators",
+        "repository",
+        "repository_branches",
+        "repository_tags",
+        "repository_commits",
+        "repository_contributors",
+        "repository_collaborators",
+        "repository_languages",
+        "repository_topics",
+        "repository_releases",
+        "repository_issues",
+        "repository_issue_comments",
+        "repository_pulls",
+        "repository_pull_reviews",
+        "repository_pull_review_comments",
+        "repository_labels",
+        "repository_milestones",
+        "repository_stargazers",
+        "repository_subscribers",
+        "repository_forks",
+        "repository_workflows",
+        "repository_workflow_runs",
+        "repository_deployments",
+        "repository_webhooks"
+      ],
+      "options": {
+        "enum_titles": [
+          "Authenticated User",
+          "User Repositories",
+          "User Organizations",
+          "Organization",
+          "Organization Members",
+          "Organization Teams",
+          "Team Members",
+          "Organization Repositories",
+          "Organization Events",
+          "Organization Outside Collaborators",
+          "Repository",
+          "Repository Branches",
+          "Repository Tags",
+          "Repository Commits",
+          "Repository Contributors",
+          "Repository Collaborators",
+          "Repository Languages",
+          "Repository Topics",
+          "Repository Releases",
+          "Repository Issues",
+          "Repository Issue Comments",
+          "Repository Pull Requests",
+          "Repository Pull Request Reviews",
+          "Repository Pull Request Review Comments",
+          "Repository Labels",
+          "Repository Milestones",
+          "Repository Stargazers",
+          "Repository Subscribers",
+          "Repository Forks",
+          "Repository Workflows",
+          "Repository Workflow Runs",
+          "Repository Deployments",
+          "Repository Webhooks"
+        ]
+      },
+      "propertyOrder": 10
+    },
+    "organization": {
+      "type": "string",
+      "title": "Organization",
+      "default": "",
+      "enum": [],
+      "propertyOrder": 20,
+      "options": {
+        "async": {
+          "label": "Load Organizations",
+          "action": "listOrganizations",
+          "autoload": true
+        },
+        "dependencies": {
+          "endpoint": [
+            "organizations",
+            "organization_members",
+            "organization_teams",
+            "team_members",
+            "organization_repositories",
+            "organization_events",
+            "organization_outside_collaborators"
+          ]
+        }
+      }
+    },
+    "team_slug": {
+      "type": "string",
+      "title": "Team",
+      "default": "",
+      "enum": [],
+      "propertyOrder": 30,
+      "options": {
+        "async": {
+          "label": "Load Teams",
+          "action": "listTeams",
+          "autoload": ["organization"]
+        },
+        "dependencies": {
+          "endpoint": [
+            "team_members"
+          ]
+        }
+      }
+    },
+    "repository": {
+      "type": "string",
+      "title": "Repository",
+      "default": "",
+      "enum": [],
+      "propertyOrder": 40,
+      "options": {
+        "async": {
+          "label": "Load Repositories",
+          "action": "listRepositories",
+          "autoload": ["organization"]
+        },
+        "dependencies": {
+          "endpoint": [
+            "repository",
+            "repository_branches",
+            "repository_tags",
+            "repository_commits",
+            "repository_contributors",
+            "repository_collaborators",
+            "repository_languages",
+            "repository_topics",
+            "repository_releases",
+            "repository_issues",
+            "repository_issue_comments",
+            "repository_pulls",
+            "repository_pull_reviews",
+            "repository_pull_review_comments",
+            "repository_labels",
+            "repository_milestones",
+            "repository_stargazers",
+            "repository_subscribers",
+            "repository_forks",
+            "repository_workflows",
+            "repository_workflow_runs",
+            "repository_deployments",
+            "repository_webhooks"
+          ]
+        }
+      }
+    },
+    "pull_number": {
+      "type": "integer",
+      "title": "Pull Request Number",
+      "propertyOrder": 50,
+      "options": {
+        "dependencies": {
+          "endpoint": [
+            "repository_pull_reviews"
+          ]
+        }
+      }
+    },
+    "load_type": {
+      "type": "string",
+      "title": "Load Type",
+      "enum": ["full_load", "incremental_load"],
+      "options": {
+        "enum_titles": ["Full Load", "Incremental Load"],
+        "dependencies": {
+          "endpoint": [
+            "user_repos",
+            "organization_repositories",
+            "repository_commits",
+            "repository_issues",
+            "repository_issue_comments",
+            "repository_pulls",
+            "repository_pull_review_comments",
+            "repository_workflow_runs"
+          ]
+        }
+      },
+      "default": "incremental_load",
+      "propertyOrder": 60
+    },
+    "initial_since": {
+      "type": "string",
+      "title": "Initial Since (ISO-8601)",
+      "default": "",
+      "description": "Optional lower bound for the first run (when no state exists). Example: <code>2024-01-01T00:00:00Z</code>. Leave empty to fetch the full history on the first run.",
+      "propertyOrder": 70,
+      "options": {
+        "dependencies": {
+          "endpoint": [
+            "user_repos",
+            "organization_repositories",
+            "repository_commits",
+            "repository_issues",
+            "repository_issue_comments",
+            "repository_pulls",
+            "repository_pull_review_comments",
+            "repository_workflow_runs"
+          ]
+        }
+      }
+    },
+    "issue_state": {
+      "type": "string",
+      "title": "Issue State",
+      "enum": ["all", "open", "closed"],
+      "options": {
+        "enum_titles": ["All", "Open", "Closed"],
+        "dependencies": {
+          "endpoint": [
+            "repository_issues"
+          ]
+        }
+      },
+      "default": "all",
+      "propertyOrder": 80
+    },
+    "pull_state": {
+      "type": "string",
+      "title": "Pull Request State",
+      "enum": ["all", "open", "closed"],
+      "options": {
+        "enum_titles": ["All", "Open", "Closed"],
+        "dependencies": {
+          "endpoint": [
+            "repository_pulls"
+          ]
+        }
+      },
+      "default": "all",
+      "propertyOrder": 81
+    },
+    "milestone_state": {
+      "type": "string",
+      "title": "Milestone State",
+      "enum": ["all", "open", "closed"],
+      "options": {
+        "enum_titles": ["All", "Open", "Closed"],
+        "dependencies": {
+          "endpoint": [
+            "repository_milestones"
+          ]
+        }
+      },
+      "default": "all",
+      "propertyOrder": 82
+    }
+  }
+}
