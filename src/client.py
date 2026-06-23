@@ -39,6 +39,9 @@ BACKOFF_BASE_SECONDS = 60
 #: Small buffer added when sleeping until the rate-limit reset epoch.
 RESET_BUFFER_SECONDS = 5
 
+#: Per-request socket timeout (seconds). Without it a hung connection blocks the job forever.
+DEFAULT_TIMEOUT = 60
+
 
 class GitHubClient:
     def __init__(
@@ -131,7 +134,7 @@ class GitHubClient:
         try:
             return response.json()
         except ValueError as exc:
-            raise UserException(f"GitHub returned a non-JSON response (HTTP {response.status_code}): {exc}")
+            raise UserException(f"GitHub returned a non-JSON response (HTTP {response.status_code}): {exc}") from exc
 
     # --------------------------------------------------------------- request + retry loop
     def _request(self, url: str, params: dict[str, Any] | None) -> requests.Response:
@@ -144,12 +147,12 @@ class GitHubClient:
         while True:
             attempt += 1
             try:
-                response = self.session.get(url, params=params)
+                response = self.session.get(url, params=params, timeout=DEFAULT_TIMEOUT)
             except requests.RequestException as exc:
                 # Network error — treat as transient, bounded by the same budget.
                 waited = self._wait(self._backoff(attempt), waited, reason=f"network error: {exc}")
                 if attempt > self.max_retries:
-                    raise UserException(f"GitHub request failed after {self.max_retries} retries: {exc}")
+                    raise UserException(f"GitHub request failed after {self.max_retries} retries: {exc}") from exc
                 continue
 
             status = response.status_code

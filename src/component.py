@@ -10,6 +10,7 @@ flattens to the declared schema, writes a headerless typed CSV + manifest, and a
 
 import csv
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from keboola.component.base import ComponentBase, sync_action
@@ -17,7 +18,7 @@ from keboola.component.dao import BaseType, ColumnDefinition, SupportedDataTypes
 from keboola.component.exceptions import UserException
 from keboola.component.sync_actions import SelectElement
 
-from client import GitHubClient
+from client import DEFAULT_TIMEOUT, GitHubClient
 from configuration import AuthType, Configuration
 from credentials import resolve_token
 from endpoints import ENDPOINTS, Endpoint, Target, expand_records, flatten_record, output_columns
@@ -35,13 +36,13 @@ _BASE_TYPE_MAP = {
 
 
 class Component(ComponentBase):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.cfg = Configuration(**self.configuration.parameters)
         self.client = GitHubClient(token=self._resolve_token())
 
     # ----------------------------------------------------------------------------- run
-    def run(self):
+    def run(self) -> None:
         endpoint = self._endpoint()
         path, context = self._build_path(endpoint)
         run_started_at = datetime.now(UTC)
@@ -88,7 +89,7 @@ class Component(ComponentBase):
         try:
             path = endpoint.path_template.format(**values)
         except KeyError as exc:
-            raise UserException(f"Missing path parameter {exc} for endpoint '{endpoint.name}'.")
+            raise UserException(f"Missing path parameter {exc} for endpoint '{endpoint.name}'.") from exc
 
         context = {
             "org": self.cfg.organization,
@@ -157,7 +158,14 @@ class Component(ComponentBase):
 
         return stop
 
-    def _collect_rows(self, endpoint, path, context, params, stop_paging) -> list[dict]:
+    def _collect_rows(
+        self,
+        endpoint: Endpoint,
+        path: str,
+        context: dict[str, str],
+        params: dict,
+        stop_paging: Callable[[dict], bool] | None,
+    ) -> list[dict]:
         """Fetch, expand object-maps, drop PR rows, and flatten to the declared columns."""
         rows: list[dict] = []
         for payload in self.client.fetch(endpoint, path, params, stop_paging=stop_paging):
@@ -199,7 +207,7 @@ class Component(ComponentBase):
 
     # --------------------------------------------------------------------- sync actions
     @sync_action("testConnection")
-    def test_connection(self):
+    def test_connection(self) -> None:
         """Validate the token against the free ``GET /rate_limit`` endpoint."""
         self._call_rate_limit()
 
@@ -223,21 +231,31 @@ class Component(ComponentBase):
 
     # ------------------------------------------------------------- sync-action helpers
     def _call_rate_limit(self) -> dict:
-        response = self.client.session.get(f"{self.client.base_url}/rate_limit")
+        response = self.client.session.get(f"{self.client.base_url}/rate_limit", timeout=DEFAULT_TIMEOUT)
         if response.status_code == 401:
             raise UserException("Invalid or expired token (HTTP 401).")
         if response.status_code >= 400:
             raise UserException(f"GitHub connection check failed (HTTP {response.status_code}).")
-        return response.json()
+        return self._parse_json(response, "/rate_limit")
 
     def _get_json_array(self, path: str, params: dict | None = None) -> list[dict]:
-        response = self.client.session.get(f"{self.client.base_url}{path}", params=params)
+        response = self.client.session.get(f"{self.client.base_url}{path}", params=params, timeout=DEFAULT_TIMEOUT)
         if response.status_code == 401:
             raise UserException("Invalid or expired token (HTTP 401).")
         if response.status_code >= 400:
             raise UserException(f"GitHub request to {path} failed (HTTP {response.status_code}).")
-        body = response.json()
+        body = self._parse_json(response, path)
         return body if isinstance(body, list) else []
+
+    @staticmethod
+    def _parse_json(response, path: str):
+        """Guard a sync-action JSON parse: a malformed/empty body becomes a clean UserException (exit 1)."""
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise UserException(
+                f"GitHub returned a malformed or empty response for {path} (HTTP {response.status_code})."
+            ) from exc
 
 
 if __name__ == "__main__":
