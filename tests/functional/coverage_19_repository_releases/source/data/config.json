@@ -1,0 +1,10 @@
+{
+  "action": "run",
+  "parameters": {
+    "auth_type": "pat",
+    "#github_token": "DUMMY_PAT_NOT_REAL",
+    "endpoint": "repository_releases",
+    "load_type": "full_load",
+    "repository": "octocat/Spoon-Knife"
+  }
+}

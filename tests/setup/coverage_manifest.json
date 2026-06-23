@@ -1,0 +1,39 @@
+{
+  "live_recordable": [
+    "coverage_01_user",
+    "coverage_02_user_repos",
+    "coverage_03_user_orgs",
+    "coverage_04_organizations",
+    "coverage_05_organization_members",
+    "coverage_08_organization_repositories",
+    "coverage_11_repository",
+    "coverage_12_repository_branches",
+    "coverage_13_repository_tags",
+    "coverage_14_repository_commits",
+    "coverage_15_repository_contributors",
+    "coverage_17_repository_languages",
+    "coverage_18_repository_topics",
+    "coverage_19_repository_releases",
+    "coverage_20_repository_issues",
+    "coverage_21_repository_issue_comments",
+    "coverage_22_repository_pulls",
+    "coverage_23_repository_pull_reviews",
+    "coverage_24_repository_pull_review_comments",
+    "coverage_25_repository_labels",
+    "coverage_26_repository_milestones",
+    "coverage_27_repository_stargazers",
+    "coverage_28_repository_subscribers",
+    "coverage_29_repository_forks",
+    "coverage_30_repository_workflows",
+    "coverage_31_repository_workflow_runs"
+  ],
+  "synthetic_only": [
+    "coverage_06_organization_teams",
+    "coverage_07_team_members",
+    "coverage_09_organization_events",
+    "coverage_10_organization_outside_collaborators",
+    "coverage_16_repository_collaborators",
+    "coverage_32_repository_deployments",
+    "coverage_33_repository_webhooks"
+  ]
+}

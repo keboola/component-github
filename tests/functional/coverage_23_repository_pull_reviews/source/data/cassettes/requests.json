@@ -1,0 +1,38 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/repos/octocat/Spoon-Knife/pulls/1/reviews?per_page=100"
+      },
+      "response": {
+        "body": {
+          "string": "[{\"id\": 1, \"node_id\": \"PRR_1\", \"user\": {\"login\": \"bob\", \"id\": 12}, \"body\": \"LGTM\", \"state\": \"APPROVED\", \"commit_id\": \"ccc333\", \"html_url\": \"https://github.com/octocat/Spoon-Knife/pull/1#pullrequestreview-1\", \"submitted_at\": \"2024-03-02T10:00:00Z\"}]"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    }
+  ],
+  "version": 1
+}

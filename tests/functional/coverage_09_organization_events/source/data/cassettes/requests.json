@@ -1,0 +1,38 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/orgs/github/events?per_page=100"
+      },
+      "response": {
+        "body": {
+          "string": "[{\"id\": \"22249084964\", \"type\": \"PushEvent\", \"actor\": {\"login\": \"octocat\", \"id\": 583231}, \"repo\": {\"name\": \"github/Spoon-Knife\", \"id\": 1300192}, \"public\": true, \"created_at\": \"2024-05-01T10:00:00Z\", \"payload\": {\"size\": 1, \"ref\": \"refs/heads/main\"}}]"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    }
+  ],
+  "version": 1
+}

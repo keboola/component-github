@@ -23,8 +23,19 @@ component actually emits. Instead we let the component generate everything:
 
 The result is a real, correctly-formatted, sanitized cassette whose expected output is exactly
 what the component produces — the same artifacts a live recording would yield, minus the need
-for a real token. (The breadth SUCCESS set is recorded live in Stage 2; these synthetic cases
-cover failures, pagination, the PR-drop, the OAuth path, and one case per envelope shape.)
+for a real token.
+
+Coverage produced here:
+* the special cases — failures (missing target / 401 / rate-limit), pagination, the /issues
+  PR-drop, incremental (seeded + first-run), the OAuth path, and the four sync actions;
+* a ``coverage_<NN>_<endpoint>`` success case for ALL 33 registry endpoints (``ENDPOINT_COVERAGE``),
+  against PUBLIC targets with small, public-safe shapes.
+
+``coverage_manifest.json`` records which coverage cases are live-recordable against public data
+with a read-scoped PAT vs which need org-membership/private access and stay synthetic. When a
+valid PAT is available, the live-recordable subset can be re-recorded for real; the synthetic-only
+subset (teams, team members, org events, outside/repo collaborators, deployments, webhooks) stays
+authored from the documented GitHub schemas so no private data is ever committed.
 """
 
 from __future__ import annotations
@@ -194,6 +205,468 @@ RATE_LIMIT_OK = {
 USER_ORGS = [{"login": "octo-org", "id": 1}, {"login": "acme", "id": 2}]
 ORG_REPOS = [{"full_name": "octo-org/repo1"}, {"full_name": "octo-org/repo2"}]
 ORG_TEAMS = [{"name": "Core Team", "slug": "core-team"}, {"name": "QA", "slug": "qa"}]
+
+
+# =====================================================================================
+# Full per-endpoint coverage table (all 33 endpoints).
+#
+# Each entry drives one `coverage_<name>` run case: the row's target params + a minimal
+# public-safe seed payload shaped per the endpoint's documented GitHub response. Public
+# targets only (octocat/Spoon-Knife, the public `github` org); a few rows trimmed small so
+# committed cassettes stay tiny and carry no private/proprietary data.
+#
+# `recordable` flags whether the endpoint can be recorded LIVE against public data with a
+# read-scoped PAT (True) or needs org-membership / private access and therefore stays
+# SYNTHETIC even with a token (False — e.g. team/collaborator/webhook/deployment/private-event
+# endpoints). Stage 2 re-records only the `recordable` ones live; the report lists which.
+# =====================================================================================
+
+_PUBLIC_REPO = "octocat/Spoon-Knife"
+_PUBLIC_ORG = "github"
+
+_SIMPLE_USER = {
+    "id": 583231,
+    "login": "octocat",
+    "node_id": "MDQ6VXNlcjU4MzIzMQ==",
+    "type": "User",
+    "html_url": "https://github.com/octocat",
+    "site_admin": False,
+}
+
+
+def _row(endpoint: str, **params) -> dict:
+    """A minimal merged-config `parameters` block for one endpoint coverage case (full load)."""
+    base = {"auth_type": "pat", "#github_token": "DUMMY_PAT_NOT_REAL", "endpoint": endpoint, "load_type": "full_load"}
+    base.update(params)
+    return base
+
+
+# endpoint -> (row params, seed response payload, recordable-live-against-public-data)
+ENDPOINT_COVERAGE: dict[str, tuple[dict, Any, bool]] = {
+    # A. Authenticated user --------------------------------------------------------------
+    "user": (
+        _row("user"),
+        {
+            "id": 583231,
+            "login": "octocat",
+            "node_id": "MDQ6VXNlcjU4MzIzMQ==",
+            "type": "User",
+            "name": "The Octocat",
+            "company": "@github",
+            "email": None,
+            "html_url": "https://github.com/octocat",
+            "public_repos": 8,
+            "followers": 10000,
+            "following": 9,
+            "created_at": "2011-01-25T18:44:36Z",
+            "updated_at": "2024-01-01T00:00:00Z",
+        },
+        True,
+    ),
+    "user_repos": (
+        _row("user_repos"),
+        [
+            {
+                "id": 1300192,
+                "name": "Spoon-Knife",
+                "full_name": _PUBLIC_REPO,
+                "private": False,
+                "owner": {"login": "octocat", "id": 583231},
+                "html_url": "https://github.com/octocat/Spoon-Knife",
+                "fork": False,
+                "stargazers_count": 12000,
+                "default_branch": "main",
+                "archived": False,
+                "disabled": False,
+                "visibility": "public",
+                "created_at": "2011-01-27T19:30:43Z",
+                "updated_at": "2024-06-01T08:00:00Z",
+                "pushed_at": "2024-02-01T10:00:00Z",
+            }
+        ],
+        True,
+    ),
+    "user_orgs": (
+        _row("user_orgs"),
+        [
+            {
+                "id": 9919,
+                "login": "github",
+                "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+                "url": "https://api.github.com/orgs/github",
+                "description": "How people build software.",
+            }
+        ],
+        True,
+    ),
+    # B. Organizations -------------------------------------------------------------------
+    "organizations": (
+        _row("organizations", organization=_PUBLIC_ORG),
+        {
+            "id": 9919,
+            "login": "github",
+            "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+            "name": "GitHub",
+            "company": None,
+            "description": "How people build software.",
+            "html_url": "https://github.com/github",
+            "type": "Organization",
+            "public_repos": 500,
+            "followers": 40000,
+            "following": 0,
+            "is_verified": True,
+            "created_at": "2008-05-11T04:37:31Z",
+            "updated_at": "2024-01-01T00:00:00Z",
+        },
+        True,
+    ),
+    "organization_members": (
+        _row("organization_members", organization=_PUBLIC_ORG),
+        [_SIMPLE_USER],
+        True,
+    ),  # public members are visible; live-recordable
+    "organization_teams": (
+        _row("organization_teams", organization=_PUBLIC_ORG),
+        [
+            {
+                "id": 1,
+                "node_id": "MDQ6VGVhbTE=",
+                "name": "Justice League",
+                "slug": "justice-league",
+                "description": "A great team",
+                "privacy": "closed",
+                "permission": "admin",
+                "html_url": "https://github.com/orgs/github/teams/justice-league",
+                "parent": None,
+            }
+        ],
+        False,
+    ),  # listing teams requires org membership — synthetic
+    "team_members": (
+        _row("team_members", organization=_PUBLIC_ORG, team_slug="justice-league"),
+        [_SIMPLE_USER],
+        False,
+    ),  # requires team/org membership — synthetic
+    "organization_repositories": (
+        _row("organization_repositories", organization=_PUBLIC_ORG),
+        [
+            {
+                "id": 1300192,
+                "name": "Spoon-Knife",
+                "full_name": _PUBLIC_REPO,
+                "private": False,
+                "owner": {"login": "github", "id": 9919},
+                "html_url": "https://github.com/octocat/Spoon-Knife",
+                "fork": False,
+                "stargazers_count": 12000,
+                "default_branch": "main",
+                "archived": False,
+                "disabled": False,
+                "visibility": "public",
+                "created_at": "2011-01-27T19:30:43Z",
+                "updated_at": "2024-06-01T08:00:00Z",
+                "pushed_at": "2024-02-01T10:00:00Z",
+            }
+        ],
+        True,
+    ),
+    "organization_events": (
+        _row("organization_events", organization=_PUBLIC_ORG),
+        [
+            {
+                "id": "22249084964",
+                "type": "PushEvent",
+                "actor": {"login": "octocat", "id": 583231},
+                "repo": {"name": "github/Spoon-Knife", "id": 1300192},
+                "public": True,
+                "created_at": "2024-05-01T10:00:00Z",
+                "payload": {"size": 1, "ref": "refs/heads/main"},
+            }
+        ],
+        False,
+    ),  # org events need org access — synthetic
+    "organization_outside_collaborators": (
+        _row("organization_outside_collaborators", organization=_PUBLIC_ORG),
+        [_SIMPLE_USER],
+        False,
+    ),  # admin-only — synthetic
+    # C. Repositories --------------------------------------------------------------------
+    "repository": (_row("repository", repository=_PUBLIC_REPO), REPO_OBJECT, True),
+    "repository_branches": (
+        _row("repository_branches", repository=_PUBLIC_REPO),
+        [
+            {
+                "name": "main",
+                "commit": {
+                    "sha": "d0dd1f61b33d64e29d8bc1372a94ef6a2fee76a9",
+                    "url": "https://api.github.com/repos/octocat/Spoon-Knife/commits/d0dd1f6",
+                },
+                "protected": False,
+            }
+        ],
+        True,
+    ),
+    "repository_tags": (
+        _row("repository_tags", repository=_PUBLIC_REPO),
+        [
+            {
+                "name": "v1.0",
+                "commit": {"sha": "aaa111"},
+                "zipball_url": "https://api.github.com/repos/octocat/Spoon-Knife/zipball/refs/tags/v1.0",
+                "tarball_url": "https://api.github.com/repos/octocat/Spoon-Knife/tarball/refs/tags/v1.0",
+            }
+        ],
+        True,
+    ),
+    "repository_commits": (_row("repository_commits", repository=_PUBLIC_REPO), COMMITS_PAGE_1, True),
+    "repository_contributors": (
+        _row("repository_contributors", repository=_PUBLIC_REPO),
+        [
+            {
+                "id": 583231,
+                "login": "octocat",
+                "type": "User",
+                "html_url": "https://github.com/octocat",
+                "contributions": 42,
+            }
+        ],
+        True,
+    ),
+    "repository_collaborators": (
+        _row("repository_collaborators", repository=_PUBLIC_REPO),
+        [
+            {
+                "id": 583231,
+                "login": "octocat",
+                "type": "User",
+                "html_url": "https://github.com/octocat",
+                "role_name": "admin",
+                "site_admin": False,
+            }
+        ],
+        False,
+    ),  # push access required — synthetic
+    "repository_languages": (_row("repository_languages", repository=_PUBLIC_REPO), LANGUAGES_MAP, True),
+    "repository_topics": (
+        _row("repository_topics", repository=_PUBLIC_REPO),
+        {"names": ["demo", "example", "octocat"]},
+        True,
+    ),
+    "repository_releases": (
+        _row("repository_releases", repository=_PUBLIC_REPO),
+        [
+            {
+                "id": 1,
+                "node_id": "MDc6UmVsZWFzZTE=",
+                "tag_name": "v1.0.0",
+                "name": "v1.0.0",
+                "draft": False,
+                "prerelease": False,
+                "author": {"login": "octocat", "id": 583231},
+                "html_url": "https://github.com/octocat/Spoon-Knife/releases/tag/v1.0.0",
+                "created_at": "2013-02-27T19:35:32Z",
+                "published_at": "2013-02-27T19:35:32Z",
+            }
+        ],
+        True,
+    ),
+    "repository_issues": (_row("repository_issues", repository=_PUBLIC_REPO), ISSUES_WITH_PR, True),
+    "repository_issue_comments": (
+        _row("repository_issue_comments", repository=_PUBLIC_REPO),
+        [
+            {
+                "id": 1,
+                "node_id": "IC_1",
+                "body": "Great issue!",
+                "user": {"login": "alice", "id": 11},
+                "html_url": "https://github.com/octocat/Spoon-Knife/issues/1#issuecomment-1",
+                "issue_url": "https://api.github.com/repos/octocat/Spoon-Knife/issues/1",
+                "created_at": "2024-03-01T09:00:00Z",
+                "updated_at": "2024-03-01T09:00:00Z",
+            }
+        ],
+        True,
+    ),
+    "repository_pulls": (
+        _row("repository_pulls", repository=_PUBLIC_REPO),
+        [
+            {
+                "id": 1,
+                "node_id": "PR_1",
+                "number": 1,
+                "title": "Update README",
+                "state": "open",
+                "locked": False,
+                "draft": False,
+                "user": {"login": "alice", "id": 11},
+                "head": {"ref": "patch-1", "sha": "ccc333"},
+                "base": {"ref": "main"},
+                "merge_commit_sha": None,
+                "html_url": "https://github.com/octocat/Spoon-Knife/pull/1",
+                "created_at": "2024-03-01T09:00:00Z",
+                "updated_at": "2024-03-02T09:00:00Z",
+                "closed_at": None,
+                "merged_at": None,
+            }
+        ],
+        True,
+    ),
+    "repository_pull_reviews": (
+        _row("repository_pull_reviews", repository=_PUBLIC_REPO, pull_number=1),
+        [
+            {
+                "id": 1,
+                "node_id": "PRR_1",
+                "user": {"login": "bob", "id": 12},
+                "body": "LGTM",
+                "state": "APPROVED",
+                "commit_id": "ccc333",
+                "html_url": "https://github.com/octocat/Spoon-Knife/pull/1#pullrequestreview-1",
+                "submitted_at": "2024-03-02T10:00:00Z",
+            }
+        ],
+        True,
+    ),
+    "repository_pull_review_comments": (
+        _row("repository_pull_review_comments", repository=_PUBLIC_REPO),
+        [
+            {
+                "id": 1,
+                "node_id": "PRRC_1",
+                "pull_request_review_id": 1,
+                "body": "nit",
+                "user": {"login": "bob", "id": 12},
+                "path": "README.md",
+                "commit_id": "ccc333",
+                "html_url": "https://github.com/octocat/Spoon-Knife/pull/1#discussion_r1",
+                "created_at": "2024-03-02T10:00:00Z",
+                "updated_at": "2024-03-02T10:00:00Z",
+            }
+        ],
+        True,
+    ),
+    "repository_labels": (
+        _row("repository_labels", repository=_PUBLIC_REPO),
+        [
+            {
+                "id": 1,
+                "node_id": "LA_1",
+                "name": "bug",
+                "color": "d73a4a",
+                "default": True,
+                "description": "Something isn't working",
+            }
+        ],
+        True,
+    ),
+    "repository_milestones": (
+        _row("repository_milestones", repository=_PUBLIC_REPO),
+        [
+            {
+                "id": 1,
+                "node_id": "MI_1",
+                "number": 1,
+                "title": "v1.0",
+                "description": "First release",
+                "state": "open",
+                "open_issues": 4,
+                "closed_issues": 8,
+                "creator": {"login": "octocat"},
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-02-01T00:00:00Z",
+                "due_on": "2024-12-31T00:00:00Z",
+                "closed_at": None,
+            }
+        ],
+        True,
+    ),
+    "repository_stargazers": (
+        _row("repository_stargazers", repository=_PUBLIC_REPO),
+        [{"id": 583231, "login": "octocat", "type": "User", "html_url": "https://github.com/octocat"}],
+        True,
+    ),
+    "repository_subscribers": (
+        _row("repository_subscribers", repository=_PUBLIC_REPO),
+        [{"id": 583231, "login": "octocat", "type": "User", "html_url": "https://github.com/octocat"}],
+        True,
+    ),
+    "repository_forks": (
+        _row("repository_forks", repository=_PUBLIC_REPO),
+        [
+            {
+                "id": 2,
+                "name": "Spoon-Knife",
+                "full_name": "alice/Spoon-Knife",
+                "owner": {"login": "alice", "id": 11},
+                "html_url": "https://github.com/alice/Spoon-Knife",
+                "forks_count": 0,
+                "stargazers_count": 0,
+                "created_at": "2024-03-01T00:00:00Z",
+                "updated_at": "2024-03-01T00:00:00Z",
+                "pushed_at": "2024-03-01T00:00:00Z",
+            }
+        ],
+        True,
+    ),
+    "repository_workflows": (_row("repository_workflows", repository=_PUBLIC_REPO), WORKFLOWS_WRAPPED, True),
+    "repository_workflow_runs": (
+        _row("repository_workflow_runs", repository=_PUBLIC_REPO),
+        {
+            "total_count": 1,
+            "workflow_runs": [
+                {
+                    "id": 30433642,
+                    "node_id": "WFR_1",
+                    "name": "CI",
+                    "head_branch": "main",
+                    "head_sha": "aaa111",
+                    "run_number": 562,
+                    "event": "push",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "workflow_id": 161335,
+                    "html_url": "https://github.com/octocat/Spoon-Knife/actions/runs/30433642",
+                    "created_at": "2024-05-01T10:00:00Z",
+                    "updated_at": "2024-05-01T10:05:00Z",
+                }
+            ],
+        },
+        True,
+    ),
+    "repository_deployments": (
+        _row("repository_deployments", repository=_PUBLIC_REPO),
+        [
+            {
+                "id": 1,
+                "node_id": "DE_1",
+                "sha": "aaa111",
+                "ref": "main",
+                "task": "deploy",
+                "environment": "production",
+                "description": None,
+                "creator": {"login": "octocat"},
+                "created_at": "2024-05-01T10:00:00Z",
+                "updated_at": "2024-05-01T10:00:00Z",
+            }
+        ],
+        False,
+    ),  # deployments commonly need repo access — synthetic
+    "repository_webhooks": (
+        _row("repository_webhooks", repository=_PUBLIC_REPO),
+        [
+            {
+                "id": 1,
+                "name": "web",
+                "active": True,
+                "events": ["push", "pull_request"],
+                "config": {"url": "https://example.com/hook", "content_type": "json"},
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z",
+            }
+        ],
+        False,
+    ),  # admin-only — synthetic
+}
 
 
 # ----------------------------------------------------------------------------- local server
@@ -395,6 +868,40 @@ def _load_configs() -> dict[str, dict]:
     return {c["name"]: c for c in raw}
 
 
+def _endpoint_path(endpoint_name: str, params: dict) -> str:
+    """Build the concrete request path the component will hit for this endpoint + row params.
+
+    Mirrors Component._build_path: substitute org/team_slug/owner/repo/pull_number into the
+    registry path template (owner/repo come from splitting the ``repository`` "owner/repo" value).
+    """
+    import endpoints as ep_mod
+
+    ep = ep_mod.ENDPOINTS[endpoint_name]
+    repo = params.get("repository", "")
+    owner, repo_name = repo.split("/", 1) if "/" in repo else ("", "")
+    return ep.path_template.format(
+        org=params.get("organization", ""),
+        team_slug=params.get("team_slug", ""),
+        owner=owner,
+        repo=repo_name,
+        pull_number=params.get("pull_number", ""),
+    )
+
+
+def _coverage_cases() -> list[tuple[str, dict, list[dict], bool]]:
+    """Build (case_name, config, routes, recordable) for all 33 endpoints from ENDPOINT_COVERAGE."""
+    import endpoints as ep_mod
+
+    cases = []
+    for i, name in enumerate(ep_mod.ENDPOINTS, start=1):
+        params, payload, recordable = ENDPOINT_COVERAGE[name]
+        path = _endpoint_path(name, params)
+        config = {"action": "run", "parameters": params}
+        routes = [{"match": path, "status": 200, "json": payload}]
+        cases.append((f"coverage_{i:02d}_{name}", config, routes, recordable))
+    return cases
+
+
 # ----------------------------------------------------------------------------- case builders
 
 
@@ -539,7 +1046,26 @@ def main() -> None:
         sync_action=True,
     )
 
+    # --- Full per-endpoint coverage (all 33 endpoints) --------------------------------------
+    recordable_map: dict[str, bool] = {}
+    for case_name, config, routes, recordable in _coverage_cases():
+        _build(case_name, config, routes, state=None, has_output=True)
+        recordable_map[case_name] = recordable
+    _write_coverage_manifest(recordable_map)
+
     print("Done. Generated cassettes under tests/functional/")
+
+
+def _write_coverage_manifest(recordable_map: dict[str, bool]) -> None:
+    """Record which coverage cases are live-recordable-against-public-data vs synthetic-only.
+
+    Read by the report (and by a future Stage-2 live re-record) to know which cassettes a valid
+    public-scoped PAT can replace with real recordings, and which must stay synthetic."""
+    manifest = {
+        "live_recordable": sorted(k for k, v in recordable_map.items() if v),
+        "synthetic_only": sorted(k for k, v in recordable_map.items() if not v),
+    }
+    (_HERE / "coverage_manifest.json").write_text(json.dumps(manifest, indent=2))
 
 
 def _build(

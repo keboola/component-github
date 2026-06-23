@@ -1,0 +1,38 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/repos/octocat/Spoon-Knife/tags?per_page=100"
+      },
+      "response": {
+        "body": {
+          "string": "[{\"name\": \"v1.0\", \"commit\": {\"sha\": \"aaa111\"}, \"zipball_url\": \"https://api.github.com/repos/octocat/Spoon-Knife/zipball/refs/tags/v1.0\", \"tarball_url\": \"https://api.github.com/repos/octocat/Spoon-Knife/tarball/refs/tags/v1.0\"}]"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    }
+  ],
+  "version": 1
+}

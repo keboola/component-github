@@ -1,0 +1,38 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/repos/octocat/Spoon-Knife/releases?per_page=100"
+      },
+      "response": {
+        "body": {
+          "string": "[{\"id\": 1, \"node_id\": \"MDc6UmVsZWFzZTE=\", \"tag_name\": \"v1.0.0\", \"name\": \"v1.0.0\", \"draft\": false, \"prerelease\": false, \"author\": {\"login\": \"octocat\", \"id\": 583231}, \"html_url\": \"https://github.com/octocat/Spoon-Knife/releases/tag/v1.0.0\", \"created_at\": \"2013-02-27T19:35:32Z\", \"published_at\": \"2013-02-27T19:35:32Z\"}]"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    }
+  ],
+  "version": 1
+}

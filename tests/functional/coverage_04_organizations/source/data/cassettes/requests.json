@@ -1,0 +1,38 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/orgs/github?per_page=100"
+      },
+      "response": {
+        "body": {
+          "string": "{\"id\": 9919, \"login\": \"github\", \"node_id\": \"MDEyOk9yZ2FuaXphdGlvbjk5MTk=\", \"name\": \"GitHub\", \"company\": null, \"description\": \"How people build software.\", \"html_url\": \"https://github.com/github\", \"type\": \"Organization\", \"public_repos\": 500, \"followers\": 40000, \"following\": 0, \"is_verified\": true, \"created_at\": \"2008-05-11T04:37:31Z\", \"updated_at\": \"2024-01-01T00:00:00Z\"}"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    }
+  ],
+  "version": 1
+}
