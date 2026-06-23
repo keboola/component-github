@@ -18,5 +18,8 @@ docs/superpowers/*-lifecycle.md
 
 # vcr datadirtesting
 secrets.json
+tests/setup/secrets.json
+# Transient run output (the tester runs on a temp copy; committed fixtures live in expected/).
 tests/functional/*/source/data/out/
-tests/functional/*/source/data/in/
+# NOTE: source/data/in/state.json IS a committed fixture (seeds the incremental case) — do not
+# ignore source/data/in/. The runner copies each case to a temp dir, so it is never polluted.

@@ -45,7 +45,7 @@ def _make_component(tmp_path, parameters, fetch_returns, state=None, config_data
 
         with mock.patch("component.GitHubClient"):
             comp = Component()
-        comp.client.fetch.return_value = iter(fetch_returns)
+        comp.client.fetch.return_value = iter(fetch_returns)  # ty: ignore[unresolved-attribute]
         comp.run()
     return data_dir
 

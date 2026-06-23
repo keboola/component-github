@@ -56,7 +56,7 @@ def test_oauth_path_resolves_injected_token_and_runs(tmp_path):
             comp = Component()
             # token resolved from #data was handed to the client
             assert client_cls.call_args.kwargs["token"] == "gho_injected"
-        comp.client.fetch.return_value = iter([{"id": 1, "name": "Hello"}])
+        comp.client.fetch.return_value = iter([{"id": 1, "name": "Hello"}])  # ty: ignore[unresolved-attribute]
         comp.run()
     assert (data_dir / "out" / "tables" / "repository.csv").exists()
 

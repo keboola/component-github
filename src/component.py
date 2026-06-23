@@ -25,6 +25,49 @@ from endpoints import ENDPOINTS, Endpoint, Target, expand_records, flatten_recor
 
 STATE_LAST_RUN = "last_run"
 
+
+def _redact_authorization(request):
+    """VCR request hook: force the recorded ``Authorization`` header to ``Bearer ***``.
+
+    The recorder's built-in sanitizer already whitelist-strips ``Authorization`` from
+    recorded requests (it is not a safe header), so no real token can leak. This hook runs
+    afterwards and unconditionally writes back a redacted placeholder so every cassette
+    *explicitly* carries ``Authorization: Bearer ***`` — the sanitization is visible, not
+    merely absent. It mutates only the recorded request; the live request is untouched (§7.2).
+    """
+    if getattr(request, "headers", None) is not None:
+        request.headers["Authorization"] = ["Bearer ***"]
+    return request
+
+
+def _build_vcr_sanitizers() -> list:
+    """Build the VCR sanitizer chain, or ``[]`` when the test-only ``keboola.vcr`` is absent.
+
+    ``keboola.vcr`` ships with the ``keboola.datadirtest`` *dev* dependency and is not present
+    in the production image (built with ``uv sync --no-dev``). Guarding the import keeps the
+    component importable in production while still exposing ``VCR_SANITIZERS`` to the recorder,
+    which probes this module in a context where the dev deps are installed.
+    """
+    try:
+        from keboola.vcr import CallbackSanitizer, DefaultSanitizer
+    except ImportError:
+        return []
+    return [
+        DefaultSanitizer(
+            additional_sensitive_fields=["access_token", "github_token"],
+            # Keep the non-secret GitHub protocol headers the client depends on at replay:
+            # Link drives pagination; the rate-limit headers + Retry-After drive wait-and-retry.
+            additional_safe_headers=["link", "x-ratelimit-remaining", "x-ratelimit-reset", "retry-after"],
+        ),
+        CallbackSanitizer(before_request=_redact_authorization),
+    ]
+
+
+#: Picked up automatically by ``keboola.datadirtest`` during recording (module-level global).
+#: ``DefaultSanitizer`` redacts ``#``-prefixed config secrets + token-shaped body/URL fields;
+#: the callback guarantees the recorded request ``Authorization`` header reads ``Bearer ***``.
+VCR_SANITIZERS = _build_vcr_sanitizers()
+
 # Maps a registry BaseType name to the keboola.component SupportedDataTypes enum.
 _BASE_TYPE_MAP = {
     "STRING": SupportedDataTypes.STRING,

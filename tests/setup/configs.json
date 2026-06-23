@@ -1,0 +1,262 @@
+[
+  {
+    "name": "01_run_repository",
+    "description": "SUCCESS · OBJECT envelope · full load. repository -> one row, native-typed manifest.",
+    "intent": "success",
+    "config": {
+      "action": "run",
+      "parameters": {
+        "auth_type": "pat",
+        "#github_token": "DUMMY_PAT_NOT_REAL",
+        "endpoint": "repository",
+        "repository": "octocat/Spoon-Knife",
+        "load_type": "full_load"
+      }
+    }
+  },
+  {
+    "name": "02_run_repository_issues_drops_pr",
+    "description": "SUCCESS · ARRAY+since envelope · full load. /issues returns a PR row that MUST be dropped (§4.4).",
+    "intent": "success",
+    "config": {
+      "action": "run",
+      "parameters": {
+        "auth_type": "pat",
+        "#github_token": "DUMMY_PAT_NOT_REAL",
+        "endpoint": "repository_issues",
+        "repository": "octocat/Spoon-Knife",
+        "load_type": "full_load"
+      }
+    }
+  },
+  {
+    "name": "03_run_repository_workflows",
+    "description": "SUCCESS · WRAPPED envelope. {total_count, workflows:[...]} -> the inner array.",
+    "intent": "success",
+    "config": {
+      "action": "run",
+      "parameters": {
+        "auth_type": "pat",
+        "#github_token": "DUMMY_PAT_NOT_REAL",
+        "endpoint": "repository_workflows",
+        "repository": "octocat/Spoon-Knife",
+        "load_type": "full_load"
+      }
+    }
+  },
+  {
+    "name": "04_run_repository_languages",
+    "description": "SUCCESS · OBJECT_MAP_VALUE envelope. {\"Python\":1234,...} -> one row per language.",
+    "intent": "success",
+    "config": {
+      "action": "run",
+      "parameters": {
+        "auth_type": "pat",
+        "#github_token": "DUMMY_PAT_NOT_REAL",
+        "endpoint": "repository_languages",
+        "repository": "octocat/Spoon-Knife",
+        "load_type": "full_load"
+      }
+    }
+  },
+  {
+    "name": "05_run_organization_members",
+    "description": "SUCCESS · ORG ARRAY envelope. org context column present.",
+    "intent": "success",
+    "config": {
+      "action": "run",
+      "parameters": {
+        "auth_type": "pat",
+        "#github_token": "DUMMY_PAT_NOT_REAL",
+        "endpoint": "organization_members",
+        "organization": "octo-org",
+        "load_type": "full_load"
+      }
+    }
+  },
+  {
+    "name": "06_run_issues_incremental_seeded",
+    "description": "SUCCESS · incremental with seeded in/state.json last_run -> `since` applied + new last_run written.",
+    "intent": "success",
+    "config": {
+      "action": "run",
+      "parameters": {
+        "auth_type": "pat",
+        "#github_token": "DUMMY_PAT_NOT_REAL",
+        "endpoint": "repository_issues",
+        "repository": "octocat/Spoon-Knife",
+        "load_type": "incremental_load"
+      }
+    }
+  },
+  {
+    "name": "07_run_issues_incremental_firstrun",
+    "description": "SUCCESS · incremental, NO state -> initial_since used; new last_run written.",
+    "intent": "success",
+    "config": {
+      "action": "run",
+      "parameters": {
+        "auth_type": "pat",
+        "#github_token": "DUMMY_PAT_NOT_REAL",
+        "endpoint": "repository_issues",
+        "repository": "octocat/Spoon-Knife",
+        "load_type": "incremental_load",
+        "initial_since": "2024-01-01T00:00:00Z"
+      }
+    }
+  },
+  {
+    "name": "08_run_pagination_two_pages",
+    "description": "SUCCESS · two-page Link rel=next traversal -> both pages concatenated; stop when next absent.",
+    "intent": "success",
+    "config": {
+      "action": "run",
+      "parameters": {
+        "auth_type": "pat",
+        "#github_token": "DUMMY_PAT_NOT_REAL",
+        "endpoint": "repository_commits",
+        "repository": "octocat/Spoon-Knife",
+        "load_type": "full_load"
+      }
+    }
+  },
+  {
+    "name": "09_run_oauth_path",
+    "description": "SUCCESS · OAuth path. Broker-injected placeholder #data resolved to a Bearer token; same fetch as PAT.",
+    "intent": "success",
+    "config": {
+      "action": "run",
+      "parameters": {
+        "auth_type": "oauth",
+        "endpoint": "repository",
+        "repository": "octocat/Spoon-Knife",
+        "load_type": "full_load"
+      },
+      "authorization": {
+        "oauth_api": {
+          "credentials": {
+            "appKey": "DUMMY_CLIENT_ID",
+            "#appSecret": "DUMMY_CLIENT_SECRET",
+            "#data": "{\"access_token\":\"DUMMY_OAUTH_ACCESS_TOKEN\",\"token_type\":\"bearer\",\"scope\":\"read:org,repo\"}"
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "20_run_missing_target_fails",
+    "description": "FAILURE (exit 1) · repository endpoint with no repository target -> UserException before any HTTP.",
+    "intent": "failure",
+    "expected_exit_code": 1,
+    "config": {
+      "action": "run",
+      "parameters": {
+        "auth_type": "pat",
+        "#github_token": "DUMMY_PAT_NOT_REAL",
+        "endpoint": "repository",
+        "repository": "",
+        "load_type": "full_load"
+      }
+    }
+  },
+  {
+    "name": "21_run_unauthorized_fails",
+    "description": "FAILURE (exit 1) · 401 from GitHub -> bounded UserException.",
+    "intent": "failure",
+    "expected_exit_code": 1,
+    "config": {
+      "action": "run",
+      "parameters": {
+        "auth_type": "pat",
+        "#github_token": "DUMMY_PAT_NOT_REAL",
+        "endpoint": "repository_issues",
+        "repository": "octocat/Spoon-Knife",
+        "load_type": "full_load"
+      }
+    }
+  },
+  {
+    "name": "22_run_rate_limit_budget_exceeded_fails",
+    "description": "FAILURE (exit 1) · 403 + x-ratelimit-remaining:0 + far-future reset -> wait budget exceeded -> UserException.",
+    "intent": "failure",
+    "expected_exit_code": 1,
+    "config": {
+      "action": "run",
+      "parameters": {
+        "auth_type": "pat",
+        "#github_token": "DUMMY_PAT_NOT_REAL",
+        "endpoint": "repository_issues",
+        "repository": "octocat/Spoon-Knife",
+        "load_type": "full_load"
+      }
+    }
+  },
+  {
+    "name": "30_testConnection",
+    "description": "SYNC ACTION SUCCESS · testConnection against GET /rate_limit (200).",
+    "intent": "success",
+    "config": {
+      "action": "testConnection",
+      "parameters": {
+        "auth_type": "pat",
+        "#github_token": "DUMMY_PAT_NOT_REAL",
+        "endpoint": ""
+      }
+    }
+  },
+  {
+    "name": "31_testConnection_unauthorized_fails",
+    "description": "SYNC ACTION FAILURE (exit 1) · testConnection with a 401 -> UserException.",
+    "intent": "failure",
+    "expected_exit_code": 1,
+    "config": {
+      "action": "testConnection",
+      "parameters": {
+        "auth_type": "pat",
+        "#github_token": "DUMMY_PAT_NOT_REAL",
+        "endpoint": ""
+      }
+    }
+  },
+  {
+    "name": "32_listOrganizations",
+    "description": "SYNC ACTION SUCCESS · listOrganizations -> [{label,value}] from GET /user/orgs.",
+    "intent": "success",
+    "config": {
+      "action": "listOrganizations",
+      "parameters": {
+        "auth_type": "pat",
+        "#github_token": "DUMMY_PAT_NOT_REAL",
+        "endpoint": ""
+      }
+    }
+  },
+  {
+    "name": "33_listRepositories",
+    "description": "SYNC ACTION SUCCESS · listRepositories (org set) -> [{label,value}] from GET /orgs/{org}/repos.",
+    "intent": "success",
+    "config": {
+      "action": "listRepositories",
+      "parameters": {
+        "auth_type": "pat",
+        "#github_token": "DUMMY_PAT_NOT_REAL",
+        "endpoint": "",
+        "organization": "octo-org"
+      }
+    }
+  },
+  {
+    "name": "34_listTeams",
+    "description": "SYNC ACTION SUCCESS · listTeams (org set) -> [{label,value}] from GET /orgs/{org}/teams.",
+    "intent": "success",
+    "config": {
+      "action": "listTeams",
+      "parameters": {
+        "auth_type": "pat",
+        "#github_token": "DUMMY_PAT_NOT_REAL",
+        "endpoint": "",
+        "organization": "octo-org"
+      }
+    }
+  }
+]

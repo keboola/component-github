@@ -1,0 +1,70 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/repos/octocat/Spoon-Knife/commits?per_page=100"
+      },
+      "response": {
+        "body": {
+          "string": "[{\"sha\": \"aaa111\", \"node_id\": \"C_aaa\", \"commit\": {\"message\": \"first\", \"author\": {\"name\": \"Alice\", \"email\": \"a@x.io\", \"date\": \"2024-05-01T10:00:00Z\"}, \"committer\": {\"name\": \"Alice\", \"date\": \"2024-05-01T10:00:00Z\"}}, \"author\": {\"login\": \"alice\", \"id\": 11}, \"committer\": {\"login\": \"alice\"}, \"html_url\": \"https://github.com/octocat/Spoon-Knife/commit/aaa111\"}]"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ],
+          "Link": [
+            "<https://api.github.com/repos/octocat/Spoon-Knife/commits?page=2>; rel=\"next\""
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    },
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/repos/octocat/Spoon-Knife/commits?page=2"
+      },
+      "response": {
+        "body": {
+          "string": "[{\"sha\": \"bbb222\", \"node_id\": \"C_bbb\", \"commit\": {\"message\": \"second\", \"author\": {\"name\": \"Bob\", \"email\": \"b@x.io\", \"date\": \"2024-04-01T10:00:00Z\"}, \"committer\": {\"name\": \"Bob\", \"date\": \"2024-04-01T10:00:00Z\"}}, \"author\": {\"login\": \"bob\", \"id\": 12}, \"committer\": {\"login\": \"bob\"}, \"html_url\": \"https://github.com/octocat/Spoon-Knife/commit/bbb222\"}]"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    }
+  ],
+  "version": 1
+}

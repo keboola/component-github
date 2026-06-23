@@ -1,0 +1,38 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/repos/octocat/Spoon-Knife/actions/workflows?per_page=100"
+      },
+      "response": {
+        "body": {
+          "string": "{\"total_count\": 2, \"workflows\": [{\"id\": 161335, \"node_id\": \"MDg6V29ya2Zsb3cxNjEzMzU=\", \"name\": \"CI\", \"path\": \".github/workflows/ci.yml\", \"state\": \"active\", \"html_url\": \"https://github.com/octocat/Spoon-Knife/blob/main/.github/workflows/ci.yml\", \"created_at\": \"2020-01-08T23:48:37Z\", \"updated_at\": \"2020-01-08T23:50:21Z\"}, {\"id\": 161336, \"node_id\": \"MDg6V29ya2Zsb3cxNjEzMzY=\", \"name\": \"Release\", \"path\": \".github/workflows/release.yml\", \"state\": \"active\", \"html_url\": \"https://github.com/octocat/Spoon-Knife/blob/main/.github/workflows/release.yml\", \"created_at\": \"2020-02-08T23:48:37Z\", \"updated_at\": \"2020-02-08T23:50:21Z\"}]}"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    }
+  ],
+  "version": 1
+}
