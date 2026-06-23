@@ -174,17 +174,14 @@ class GitHubClient:
                 waited = self._wait(wait_seconds, waited, reason=f"rate limit (HTTP {status})")
                 if attempt > self.max_retries:
                     raise UserException(
-                        "GitHub rate limit not recovered within the retry budget; "
-                        "reduce scope or re-run later."
+                        "GitHub rate limit not recovered within the retry budget; reduce scope or re-run later."
                     )
                 continue
 
             if status >= 500:
                 waited = self._wait(self._backoff(attempt), waited, reason=f"transient HTTP {status}")
                 if attempt > self.max_retries:
-                    raise UserException(
-                        f"GitHub returned HTTP {status} repeatedly (after {self.max_retries} retries)."
-                    )
+                    raise UserException(f"GitHub returned HTTP {status} repeatedly (after {self.max_retries} retries).")
                 continue
 
             # Any other 4xx (e.g. 403 that is NOT a rate limit — insufficient scope / SSO) is terminal.

@@ -1,99 +1,248 @@
-"""
-Template Component main class.
+"""GitHub extractor — thin, registry-driven orchestrator.
 
+``run()`` is identical for all 33 endpoints: every per-endpoint difference (path, target,
+primary key, envelope shape, incremental strategy, output columns + native types) is data in
+the :mod:`endpoints` registry. The component resolves a token (PAT or OAuth) in ``__init__``,
+builds the auth-agnostic :class:`GitHubClient`, then for the row's chosen endpoint fetches,
+flattens to the declared schema, writes a headerless typed CSV + manifest, and advances the
+``last_run`` watermark only on success.
 """
 
 import csv
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
-from keboola.component.base import ComponentBase
+from keboola.component.base import ComponentBase, sync_action
+from keboola.component.dao import BaseType, ColumnDefinition, SupportedDataTypes
 from keboola.component.exceptions import UserException
+from keboola.component.sync_actions import SelectElement
 
-from configuration import Configuration
+from client import GitHubClient
+from configuration import AuthType, Configuration
+from credentials import resolve_token
+from endpoints import ENDPOINTS, Endpoint, Target, expand_records, flatten_record, output_columns
+
+STATE_LAST_RUN = "last_run"
+
+# Maps a registry BaseType name to the keboola.component SupportedDataTypes enum.
+_BASE_TYPE_MAP = {
+    "STRING": SupportedDataTypes.STRING,
+    "INTEGER": SupportedDataTypes.INTEGER,
+    "NUMERIC": SupportedDataTypes.NUMERIC,
+    "BOOLEAN": SupportedDataTypes.BOOLEAN,
+    "TIMESTAMP": SupportedDataTypes.TIMESTAMP,
+}
 
 
 class Component(ComponentBase):
-    """
-    Extends base class for general Python components. Initializes the CommonInterface
-    and performs configuration validation.
-
-    For easier debugging the data folder is picked up by default from `../data` path,
-    relative to working directory.
-
-    If `debug` parameter is present in the `config.json`, the default logger is set to verbose DEBUG mode.
-    """
-
     def __init__(self):
         super().__init__()
+        self.cfg = Configuration(**self.configuration.parameters)
+        self.client = GitHubClient(token=self._resolve_token())
 
+    # ----------------------------------------------------------------------------- run
     def run(self):
-        """
-        Main execution code
-        """
+        endpoint = self._endpoint()
+        path, context = self._build_path(endpoint)
+        run_started_at = datetime.now(UTC)
+        since = self._since() if self.cfg.incremental_load else None
+        params, stop_paging = self._fetch_params(endpoint, since)
 
-        # ####### EXAMPLE TO REMOVE
-        # check for missing configuration parameters
-        params = Configuration(**self.configuration.parameters)
+        rows = self._collect_rows(endpoint, path, context, params, stop_paging)
+        self._write_table(endpoint, rows)
 
-        # Access parameters in configuration
-        if params.print_hello:
-            logging.info("Hello World")
+        if self.cfg.incremental_load:
+            self.write_state_file({STATE_LAST_RUN: run_started_at.isoformat()})
 
-        # get input table definitions
-        input_tables = self.get_input_tables_definitions()
-        for table in input_tables:
-            logging.info("Received input table: %s with path: %s", table.name, table.full_path)
+    # ------------------------------------------------------------------- run() helpers
+    def _resolve_token(self) -> str:
+        oauth_credentials = None
+        if self.cfg.auth_type == AuthType.oauth:
+            oauth_credentials = self._oauth_credentials()
+        return resolve_token(self.cfg, oauth_credentials)
 
-        if len(input_tables) == 0:
-            raise UserException("No input tables found")
+    def _oauth_credentials(self) -> dict | None:
+        """The broker-injected ``authorization.oauth_api.credentials`` (guarded for absence)."""
+        config_data = self.configuration.config_data or {}
+        return config_data.get("authorization", {}).get("oauth_api", {}).get("credentials")
 
-        # get last state data/in/state.json from previous run
-        previous_state = self.get_state_file()
-        logging.info(previous_state.get("some_parameter"))
+    def _endpoint(self) -> Endpoint:
+        endpoint = ENDPOINTS.get(self.cfg.endpoint)
+        if endpoint is None:
+            raise UserException(
+                f"Unknown endpoint '{self.cfg.endpoint}'. Choose one of: {', '.join(sorted(ENDPOINTS))}."
+            )
+        return endpoint
 
-        # Create output table (Table definition - just metadata)
-        table = self.create_out_table_definition("output.csv", incremental=True, primary_key=["timestamp"])
+    def _build_path(self, endpoint: Endpoint) -> tuple[str, dict[str, str]]:
+        """Substitute the row's target params into the path; return (path, context columns)."""
+        owner, repo = self._split_repository()
+        values = {
+            "org": self.cfg.organization,
+            "team_slug": self.cfg.team_slug,
+            "owner": owner,
+            "repo": repo,
+            "pull_number": self.cfg.pull_number,
+        }
+        self._require_targets(endpoint, values)
+        try:
+            path = endpoint.path_template.format(**values)
+        except KeyError as exc:
+            raise UserException(f"Missing path parameter {exc} for endpoint '{endpoint.name}'.")
 
-        # get file path of the table (data/out/tables/Features.csv)
-        out_table_path = table.full_path
-        logging.info(out_table_path)
+        context = {
+            "org": self.cfg.organization,
+            "owner": owner,
+            "repo": repo,
+            "repository": f"{owner}/{repo}" if owner and repo else "",
+            "team_slug": self.cfg.team_slug,
+        }
+        return path, context
 
-        # Add timestamp column and save into out_table_path
-        input_table = input_tables[0]
-        with (
-            open(input_table.full_path) as inp_file,
-            open(table.full_path, mode="w", encoding="utf-8", newline="") as out_file,
-        ):
-            reader = csv.DictReader(inp_file)
+    def _split_repository(self) -> tuple[str, str]:
+        """The async ``repository`` select carries ``owner/repo``; split it."""
+        if "/" in self.cfg.repository:
+            owner, repo = self.cfg.repository.split("/", 1)
+            return owner, repo
+        return "", ""
 
-            columns = list(reader.fieldnames)
-            # append timestamp
-            columns.append("timestamp")
+    @staticmethod
+    def _require_targets(endpoint: Endpoint, values: dict) -> None:
+        """Belt-and-braces validation behind the schema's conditional fields."""
+        required: dict[Target, list[str]] = {
+            Target.NONE: [],
+            Target.ORG: ["org"],
+            Target.ORG_TEAM: ["org", "team_slug"],
+            Target.OWNER_REPO: ["owner", "repo"],
+            Target.OWNER_REPO_PULL: ["owner", "repo", "pull_number"],
+        }
+        missing = [field for field in required[endpoint.target] if not values.get(field)]
+        if missing:
+            raise UserException(
+                f"Endpoint '{endpoint.name}' requires {', '.join(missing)} "
+                "— set the organization / repository / team / pull request number on the row."
+            )
 
-            # write result with column added
-            writer = csv.DictWriter(out_file, fieldnames=columns)
-            writer.writeheader()
-            for in_row in reader:
-                in_row["timestamp"] = datetime.now().isoformat()
-                writer.writerow(in_row)
+    def _since(self) -> str | None:
+        """Lower bound for incremental: stored watermark, else the row's ``initial_since``."""
+        state = self.get_state_file() or {}
+        return state.get(STATE_LAST_RUN) or self.cfg.initial_since or None
 
-        # Save table manifest (output.csv.manifest) from the Table definition
+    def _fetch_params(self, endpoint: Endpoint, since: str | None):
+        """Build query params + the optional client-side stop-paging predicate."""
+        params = dict(endpoint.default_params)
+        for row_field, query_param in endpoint.filter_params.items():
+            params[query_param] = getattr(self.cfg, row_field)
+
+        stop_paging = None
+        if since and endpoint.incremental_param:
+            params[endpoint.incremental_param] = since
+        elif since and endpoint.incremental_sort:
+            # No server `since` (e.g. /pulls) — sort desc and stop once we cross the watermark.
+            stop_paging = self._stop_paging_predicate(since)
+        return params, stop_paging
+
+    @staticmethod
+    def _stop_paging_predicate(since: str):
+        watermark = datetime.fromisoformat(since)
+
+        def stop(last_record: dict) -> bool:
+            updated = last_record.get("updated_at")
+            if not updated:
+                return False
+            try:
+                return datetime.fromisoformat(updated.replace("Z", "+00:00")) < watermark
+            except ValueError, AttributeError:
+                return False
+
+        return stop
+
+    def _collect_rows(self, endpoint, path, context, params, stop_paging) -> list[dict]:
+        """Fetch, expand object-maps, drop PR rows, and flatten to the declared columns."""
+        rows: list[dict] = []
+        for payload in self.client.fetch(endpoint, path, params, stop_paging=stop_paging):
+            for record in expand_records(endpoint, payload, context):
+                if endpoint.drop_predicate and record.get(endpoint.drop_predicate) is not None:
+                    continue  # /issues PR-split: drop pull-request rows (§4.4)
+                rows.append(flatten_record(endpoint, record, context))
+        return rows
+
+    def _write_table(self, endpoint: Endpoint, rows: list[dict]) -> None:
+        columns = output_columns(endpoint)
+        table = self.create_out_table_definition(
+            f"{endpoint.name}.csv",
+            primary_key=endpoint.primary_key,
+            incremental=self.cfg.incremental_load,
+            schema=self._build_schema(endpoint),
+            # Headerless invariant (§6.5): the schema names the columns; CSV carries no header.
+            has_header=False,
+        )
+        with open(table.full_path, "w", encoding="utf-8", newline="") as out_file:
+            writer = csv.DictWriter(out_file, fieldnames=columns, extrasaction="ignore")
+            writer.writerows(rows)  # no writeheader() — headerless
         self.write_manifest(table)
+        logging.info("Wrote %d rows to table '%s'.", len(rows), endpoint.name)
 
-        # Write new state - will be available next run
-        self.write_state_file({"some_state_parameter": "value"})
+    @staticmethod
+    def _build_schema(endpoint: Endpoint) -> dict[str, ColumnDefinition]:
+        """Authoritative native-type schema (§6.5): one ColumnDefinition per output column."""
+        typed = {col.name: col.base_type.value for col in endpoint.schema}
+        pk = set(endpoint.primary_key)
+        schema: dict[str, ColumnDefinition] = {}
+        for name in output_columns(endpoint):
+            base = _BASE_TYPE_MAP.get(typed.get(name, "STRING"), SupportedDataTypes.STRING)
+            schema[name] = ColumnDefinition(
+                data_types=BaseType(dtype=base),
+                primary_key=name in pk,
+            )
+        return schema
 
-        # ####### EXAMPLE TO REMOVE END
+    # --------------------------------------------------------------------- sync actions
+    @sync_action("testConnection")
+    def test_connection(self):
+        """Validate the token against the free ``GET /rate_limit`` endpoint."""
+        self._call_rate_limit()
+
+    @sync_action("listOrganizations")
+    def list_organizations(self) -> list[SelectElement]:
+        orgs = self._get_json_array("/user/orgs")
+        return [SelectElement(value=o["login"], label=o["login"]) for o in orgs]
+
+    @sync_action("listRepositories")
+    def list_repositories(self) -> list[SelectElement]:
+        path = f"/orgs/{self.cfg.organization}/repos" if self.cfg.organization else "/user/repos"
+        repos = self._get_json_array(path, params={"per_page": "100"})
+        return [SelectElement(value=r["full_name"], label=r["full_name"]) for r in repos]
+
+    @sync_action("listTeams")
+    def list_teams(self) -> list[SelectElement]:
+        if not self.cfg.organization:
+            raise UserException("Select an organization before loading teams.")
+        teams = self._get_json_array(f"/orgs/{self.cfg.organization}/teams", params={"per_page": "100"})
+        return [SelectElement(value=t["slug"], label=t["name"]) for t in teams]
+
+    # ------------------------------------------------------------- sync-action helpers
+    def _call_rate_limit(self) -> dict:
+        response = self.client.session.get(f"{self.client.base_url}/rate_limit")
+        if response.status_code == 401:
+            raise UserException("Invalid or expired token (HTTP 401).")
+        if response.status_code >= 400:
+            raise UserException(f"GitHub connection check failed (HTTP {response.status_code}).")
+        return response.json()
+
+    def _get_json_array(self, path: str, params: dict | None = None) -> list[dict]:
+        response = self.client.session.get(f"{self.client.base_url}{path}", params=params)
+        if response.status_code == 401:
+            raise UserException("Invalid or expired token (HTTP 401).")
+        if response.status_code >= 400:
+            raise UserException(f"GitHub request to {path} failed (HTTP {response.status_code}).")
+        body = response.json()
+        return body if isinstance(body, list) else []
 
 
-"""
-        Main entrypoint
-"""
 if __name__ == "__main__":
     try:
         comp = Component()
-        # this triggers the run method by default and is controlled by the configuration.action parameter
         comp.execute_action()
     except UserException as exc:
         logging.exception(exc)
