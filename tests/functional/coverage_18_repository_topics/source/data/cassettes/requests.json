@@ -16,15 +16,21 @@
           ]
         },
         "method": "GET",
-        "uri": "https://api.github.com/repos/octocat/Spoon-Knife/topics?per_page=100"
+        "uri": "https://api.github.com/repos/cli/cli/topics?per_page=100"
       },
       "response": {
         "body": {
-          "string": "{\"names\": [\"demo\", \"example\", \"octocat\"]}"
+          "string": "{\"names\": [\"github-api-v4\", \"cli\"]}"
         },
         "headers": {
           "Content-Type": [
-            "application/json"
+            "application/json; charset=utf-8"
+          ],
+          "X-RateLimit-Remaining": [
+            "4580"
+          ],
+          "X-RateLimit-Reset": [
+            "1782249283"
           ]
         },
         "status": {

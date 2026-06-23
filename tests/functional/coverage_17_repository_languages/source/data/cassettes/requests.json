@@ -20,11 +20,17 @@
       },
       "response": {
         "body": {
-          "string": "{\"Python\": 12345, \"Shell\": 678, \"Dockerfile\": 90}"
+          "string": "{\"HTML\": 355, \"CSS\": 256}"
         },
         "headers": {
           "Content-Type": [
-            "application/json"
+            "application/json; charset=utf-8"
+          ],
+          "X-RateLimit-Remaining": [
+            "4595"
+          ],
+          "X-RateLimit-Reset": [
+            "1782249283"
           ]
         },
         "status": {
