@@ -1,26 +1,77 @@
-import logging
+"""Configuration models for the GitHub extractor.
+
+The Keboola platform delivers a single merged ``config.json`` whose ``parameters`` are the
+root config (auth + global options) and the row's params flattened together. One
+``Configuration`` model therefore mirrors both concerns. ``debug`` is intentionally NOT a
+field here — ``ComponentBase`` consumes the platform ``debug`` parameter and switches the
+root logger to DEBUG on its own, so a model field would be redundant (see spec §6.4).
+"""
+
+from enum import StrEnum
+from typing import Self
 
 from keboola.component.exceptions import UserException
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, computed_field, model_validator
+
+
+class AuthType(StrEnum):
+    pat = "pat"
+    oauth = "oauth"
+
+
+class LoadType(StrEnum):
+    full_load = "full_load"
+    incremental_load = "incremental_load"
 
 
 class Configuration(BaseModel):
-    print_hello: bool
-    api_token: str = Field(alias="#api_token")
-    debug: bool = False
+    """Merged root + row configuration for one extraction.
+
+    All async-loaded fields (``organization``, ``team_slug``, ``repository``) and the token
+    default to empty so sync actions — which instantiate this before the form is complete —
+    never trip validation. Presence of a required target is enforced in ``run()`` against the
+    registry, not here. See the sync-action gotcha in component-develop's configuration model.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    # --- root: authentication + global options ---
+    auth_type: AuthType = AuthType.pat
+    github_token: str = Field(alias="#github_token", default="")
+    incremental: bool = True
+
+    # --- row: endpoint selection + target + filters ---
+    endpoint: str = ""
+    organization: str = ""
+    team_slug: str = ""
+    repository: str = ""
+    pull_number: int | None = None
+    load_type: LoadType = LoadType.incremental_load
+    initial_since: str = ""
+    issue_state: str = "all"
+    pull_state: str = "all"
+    milestone_state: str = "all"
+
+    @computed_field
+    @property
+    def incremental_load(self) -> bool:
+        """True when this row should upsert incrementally (vs full overwrite)."""
+        return self.load_type == LoadType.incremental_load
+
+    @model_validator(mode="after")
+    def _validate_auth(self) -> Self:
+        # OAuth tokens are validated at runtime by the presence of broker-injected
+        # credentials, so only the PAT path can be checked here.
+        if self.auth_type == AuthType.pat and not self.github_token:
+            raise UserException(
+                "A GitHub Personal Access Token (#github_token) is required when "
+                "the authentication method is 'Personal Access Token'."
+            )
+        return self
 
     def __init__(self, **data):
         try:
             super().__init__(**data)
         except ValidationError as e:
-            error_messages = [f"{err['loc'][0]}: {err['msg']}" for err in e.errors()]
-            raise UserException(f"Validation Error: {', '.join(error_messages)}")
-
-        if self.debug:
-            logging.debug("Component will run in Debug mode")
-
-    @field_validator("api_token")
-    def token_must_be_uppercase(cls, v):
-        if not v.isupper():
-            raise UserException("API token must be uppercase")
-        return v
+            error_messages = [f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in e.errors()]
+            raise UserException(f"Configuration validation error: {', '.join(error_messages)}")
