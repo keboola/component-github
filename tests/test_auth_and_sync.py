@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+import requests
 import responses
 from keboola.component.exceptions import UserException
 
@@ -154,3 +155,69 @@ def test_list_teams_requires_org(tmp_path):
     comp = _component(_datadir(tmp_path, _SYNC_CONFIG), patch_client=False)
     with pytest.raises(SystemExit):
         comp.list_teams()
+
+
+# --------------------------------------------------- network-error guard (exit-2 regression)
+
+
+@responses.activate
+def test_test_connection_network_error_raises_userexception(tmp_path):
+    """A connection error during testConnection must be a clean UserException, never escape to exit 2.
+
+    The sync action routes through GitHubClient.get_json, whose try/except requests.RequestException
+    converts the failure to UserException. The handler raises it directly (here we call the private
+    _call_rate_limit to assert on the exception type, before the @sync_action wrapper maps it).
+    """
+    responses.add(
+        responses.GET,
+        "https://api.github.com/rate_limit",
+        body=requests.exceptions.ConnectionError("connection reset by peer"),
+    )
+    comp = _component(_datadir(tmp_path, _SYNC_CONFIG), patch_client=False)
+    with pytest.raises(UserException, match="Could not reach GitHub"):
+        comp._call_rate_limit()
+
+
+@responses.activate
+def test_list_organizations_network_error_userexception_via_private_helper(tmp_path):
+    """A connection error during a dropdown loader is a clean UserException (asserted pre-wrapper).
+
+    Calling the private _fetch_json_array shows the underlying raise is UserException with the
+    network-guard message — i.e. it maps to exit 1, never escaping uncaught to exit 2.
+    """
+    responses.add(
+        responses.GET,
+        "https://api.github.com/user/orgs",
+        body=requests.exceptions.ConnectTimeout("timed out"),
+    )
+    comp = _component(_datadir(tmp_path, _SYNC_CONFIG), patch_client=False)
+    with pytest.raises(UserException, match="Could not reach GitHub"):
+        comp._fetch_json_array("/user/orgs")
+
+
+@responses.activate
+def test_list_organizations_network_error_exits_one_not_two(tmp_path):
+    """End-to-end through the @sync_action wrapper: a network error becomes exit 1, never exit 2."""
+    responses.add(
+        responses.GET,
+        "https://api.github.com/user/orgs",
+        body=requests.exceptions.ConnectionError("connection reset by peer"),
+    )
+    comp = _component(_datadir(tmp_path, _SYNC_CONFIG), patch_client=False)
+    with pytest.raises(SystemExit) as exit_info:
+        comp.list_organizations()
+    assert exit_info.value.code == 1
+
+
+@responses.activate
+def test_list_organizations_skips_entries_missing_login(tmp_path):
+    """A renamed/missing 'login' field must be skipped, never raise KeyError (exit-2 path)."""
+    responses.add(
+        responses.GET,
+        "https://api.github.com/user/orgs",
+        json=[{"login": "octo-org"}, {"id": 2}],  # second entry has no 'login'
+        status=200,
+    )
+    comp = _component(_datadir(tmp_path, _SYNC_CONFIG), patch_client=False)
+    result = comp.list_organizations()
+    assert [e.value for e in result] == ["octo-org"]

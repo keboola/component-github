@@ -1,6 +1,7 @@
 {
   "type": "object",
   "title": "GitHub Extractor — Row Configuration",
+  "required": ["endpoint"],
   "properties": {
     "endpoint": {
       "type": "string",
@@ -205,9 +206,10 @@
       "type": "string",
       "title": "Initial Since (ISO-8601)",
       "default": "",
-      "description": "Optional lower bound for the first run (when no state exists). Example: <code>2024-01-01T00:00:00Z</code>. Leave empty to fetch the full history on the first run.",
+      "description": "Optional lower bound for the first run (when no state exists).",
       "propertyOrder": 70,
       "options": {
+        "tooltip": "Applies only on the first run, when no state exists yet. Example: <code>2024-01-01T00:00:00Z</code>. Leave empty to fetch the full history on the first run.",
         "dependencies": {
           "endpoint": [
             "user_repos",

@@ -928,13 +928,3 @@ def output_columns(endpoint: Endpoint) -> list[str]:
         if ctx_col not in names:
             names.append(ctx_col)
     return names
-
-
-def schema_for_manifest(endpoint: Endpoint) -> list[dict[str, Any]]:
-    """Build the authoritative ``schema`` manifest entries (name + native base type)."""
-    typed = {col.name: col.base_type.value for col in endpoint.schema}
-    schema: list[dict[str, Any]] = []
-    for name in output_columns(endpoint):
-        base = typed.get(name, BaseType.STRING.value)
-        schema.append({"name": name, "base_type": base})
-    return schema

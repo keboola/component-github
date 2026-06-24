@@ -19,6 +19,7 @@ from typing import Any
 
 import requests
 from keboola.component.exceptions import UserException
+from tenacity import RetryCallState, Retrying, retry_if_exception_type
 
 from endpoints import Endpoint, Envelope
 
@@ -41,6 +42,23 @@ RESET_BUFFER_SECONDS = 5
 
 #: Per-request socket timeout (seconds). Without it a hung connection blocks the job forever.
 DEFAULT_TIMEOUT = 60
+
+
+class _RetryableError(Exception):
+    """Internal signal that an attempt failed transiently and may be retried.
+
+    Carries the header-driven ``wait_seconds`` tenacity should sleep before the next attempt and
+    the ``giveup_message`` to surface (as a :class:`UserException`) if the retry budget is blown.
+    Never escapes the client: tenacity either retries or the give-up callback converts it.
+    """
+
+    def __init__(self, wait_seconds: float, giveup_message: str, *, scale_with_attempt: bool = False):
+        super().__init__(giveup_message)
+        self.wait_seconds = wait_seconds
+        self.giveup_message = giveup_message
+        # Transient (network/5xx) backoff grows exponentially with the attempt number; a
+        # header-driven rate-limit wait is an absolute value and must NOT be scaled.
+        self.scale_with_attempt = scale_with_attempt
 
 
 class GitHubClient:
@@ -113,6 +131,37 @@ class GitHubClient:
 
             url = self._next_link(response)
 
+    # --------------------------------------------------------- single-request GET (sync actions)
+    def get_json(self, path: str, params: dict[str, str] | None = None) -> Any:
+        """One guarded GET for sync actions: same auth/headers/timeout, network errors guarded.
+
+        Unlike :meth:`fetch` this performs no pagination or retry — it backs the sync actions
+        (testConnection / the dropdown loaders), which need a single call with the SAME network
+        guard as the run path. A connection reset / DNS / timeout / SSL error becomes a clean
+        :class:`UserException` (exit 1) instead of escaping uncaught (which the ``__main__`` guard
+        would map to exit 2 — "internal error" in the config UI). The 401 / other-4xx mapping is
+        left to the caller, since sync actions return endpoint-specific messages.
+        """
+        url = f"{self.base_url}{path}"
+        try:
+            response = self.session.get(url, params=params, timeout=DEFAULT_TIMEOUT)
+        except requests.RequestException as exc:
+            raise UserException(f"Could not reach GitHub at {path} ({exc}). Check connectivity and try again.") from exc
+        return response
+
+    def get_json_array(self, path: str, params: dict[str, str] | None = None) -> tuple[Any, list[dict[str, Any]]]:
+        """Guarded GET returning ``(response, records)`` where records is ``[]`` for non-array bodies.
+
+        Wraps :meth:`get_json` (so the network guard applies) and parses the body safely; the raw
+        response is returned alongside so the caller can branch on the status code (401 → token,
+        other 4xx/5xx → generic) before reading the list.
+        """
+        response = self.get_json(path, params)
+        if response.status_code >= 400:
+            return response, []
+        body = self._parse_json(response)
+        return response, body if isinstance(body, list) else []
+
     @staticmethod
     def _unwrap(endpoint: Endpoint, payload: Any) -> list[dict[str, Any]]:
         if endpoint.envelope == Envelope.OBJECT:
@@ -136,76 +185,116 @@ class GitHubClient:
         except ValueError as exc:
             raise UserException(f"GitHub returned a non-JSON response (HTTP {response.status_code}): {exc}") from exc
 
-    # --------------------------------------------------------------- request + retry loop
+    # --------------------------------------------------------------- request + retry control
     def _request(self, url: str, params: dict[str, Any] | None) -> requests.Response:
-        """Perform one GET with bounded rate-limit/transient wait-and-retry.
+        """Perform one GET with bounded rate-limit/transient wait-and-retry, driven by tenacity.
 
-        Terminal failures raise :class:`UserException` (exit 1) with an actionable message.
+        The single-attempt logic (:meth:`_attempt`) classifies the outcome: success returns the
+        response, terminal failures (401/404/non-rate-limit 4xx) raise :class:`UserException`
+        immediately, and transient failures (network, rate-limit 403/429, 5xx) raise the internal
+        :class:`_RetryableError` carrying the header-driven wait and the give-up message.
+
+        Tenacity orchestrates the attempts: the ``wait`` callable reads that header-driven wait,
+        the ``stop`` callable enforces the SAME bounds as before — cumulative wait budget first
+        (``max_rate_limit_wait_seconds``), then attempt count (``max_retries``) — and on give-up
+        the ``retry_error_callback`` re-raises the carried message as a :class:`UserException`.
+        Only ``_RetryableError`` is retried; terminal ``UserException`` propagates untouched.
         """
-        waited = 0.0
-        attempt = 0
-        while True:
-            attempt += 1
-            try:
-                response = self.session.get(url, params=params, timeout=DEFAULT_TIMEOUT)
-            except requests.RequestException as exc:
-                # Network error — treat as transient, bounded by the same budget.
-                waited = self._wait(self._backoff(attempt), waited, reason=f"network error: {exc}")
-                if attempt > self.max_retries:
-                    raise UserException(f"GitHub request failed after {self.max_retries} retries: {exc}") from exc
-                continue
+        retrying = Retrying(
+            retry=retry_if_exception_type(_RetryableError),
+            wait=self._tenacity_wait,
+            stop=self._tenacity_stop,
+            sleep=self._sleep,
+            retry_error_callback=self._tenacity_giveup,
+            reraise=True,
+        )
+        return retrying(self._attempt, url, params)
 
-            status = response.status_code
+    def _attempt(self, url: str, params: dict[str, Any] | None) -> requests.Response:
+        """One GET; success → response, terminal → UserException, transient → ``_RetryableError``."""
+        try:
+            response = self.session.get(url, params=params, timeout=DEFAULT_TIMEOUT)
+        except requests.RequestException as exc:
+            # Network error — treat as transient, bounded by the same budget.
+            raise _RetryableError(
+                BACKOFF_BASE_SECONDS,
+                f"GitHub request failed after {self.max_retries} retries: {exc}",
+                scale_with_attempt=True,
+            ) from exc
 
-            if status < 400:
-                return response
+        status = response.status_code
 
-            if status == 401:
-                raise UserException(
-                    "GitHub rejected the token (HTTP 401). The token is invalid, expired, or "
-                    "lacks the required scopes (read:org, repo)."
-                )
+        if status < 400:
+            return response
 
-            if status == 404:
-                raise UserException(
-                    f"GitHub resource not found (HTTP 404): {url}. Check the organization/repository "
-                    "name and that the token has access to it."
-                )
-
-            if status in (403, 429) and self._is_rate_limited(response):
-                wait_seconds = self._rate_limit_wait_seconds(response)
-                waited = self._wait(wait_seconds, waited, reason=f"rate limit (HTTP {status})")
-                if attempt > self.max_retries:
-                    raise UserException(
-                        "GitHub rate limit not recovered within the retry budget; reduce scope or re-run later."
-                    )
-                continue
-
-            if status >= 500:
-                waited = self._wait(self._backoff(attempt), waited, reason=f"transient HTTP {status}")
-                if attempt > self.max_retries:
-                    raise UserException(f"GitHub returned HTTP {status} repeatedly (after {self.max_retries} retries).")
-                continue
-
-            # Any other 4xx (e.g. 403 that is NOT a rate limit — insufficient scope / SSO) is terminal.
+        if status == 401:
             raise UserException(
-                f"GitHub request to {url} failed with HTTP {status}: {self._error_message(response)}. "
-                "Check the token scopes/SSO authorization and the target's access."
+                "GitHub rejected the token (HTTP 401). The token is invalid, expired, or "
+                "lacks the required scopes (read:org, repo)."
             )
 
-    def _wait(self, seconds: float, already_waited: float, reason: str) -> float:
-        """Sleep ``seconds`` if the total wait budget allows; else raise UserException."""
-        if already_waited + seconds > self.max_rate_limit_wait_seconds:
+        if status == 404:
+            raise UserException(
+                f"GitHub resource not found (HTTP 404): {url}. Check the organization/repository "
+                "name and that the token has access to it."
+            )
+
+        if status in (403, 429) and self._is_rate_limited(response):
+            raise _RetryableError(
+                self._rate_limit_wait_seconds(response),
+                "GitHub rate limit not recovered within the retry budget; reduce scope or re-run later.",
+            )
+
+        if status >= 500:
+            raise _RetryableError(
+                BACKOFF_BASE_SECONDS,
+                f"GitHub returned HTTP {status} repeatedly (after {self.max_retries} retries).",
+                scale_with_attempt=True,
+            )
+
+        # Any other 4xx (e.g. 403 that is NOT a rate limit — insufficient scope / SSO) is terminal.
+        raise UserException(
+            f"GitHub request to {url} failed with HTTP {status}: {self._error_message(response)}. "
+            "Check the token scopes/SSO authorization and the target's access."
+        )
+
+    # ---------------------------------------------------------------- tenacity callables
+    def _tenacity_wait(self, retry_state: RetryCallState) -> float:
+        """Header-driven wait for the failed attempt: the value carried by ``_RetryableError``.
+
+        Backoff for network/5xx grows exponentially with the attempt number to match the previous
+        hand-rolled loop; rate-limit waits use the exact value computed from the response headers.
+        """
+        exc = retry_state.outcome.exception() if retry_state.outcome else None
+        if not isinstance(exc, _RetryableError):
+            return 0.0
+        seconds = exc.wait_seconds
+        if exc.scale_with_attempt:  # transient backoff scales with attempt; header waits don't
+            seconds = float(BACKOFF_BASE_SECONDS * (2 ** (retry_state.attempt_number - 1)))
+        logging.warning("Waiting %.0fs before retry (%s).", seconds, exc.giveup_message)
+        return seconds
+
+    def _tenacity_stop(self, retry_state: RetryCallState) -> bool:
+        """Give up when the next sleep would blow the cumulative wait budget, or after max_retries.
+
+        ``wait`` runs before ``stop`` in tenacity, so ``upcoming_sleep`` already holds this round's
+        sleep — letting us enforce the budget BEFORE sleeping, exactly like the old ``_wait``.
+        """
+        if retry_state.idle_for + retry_state.upcoming_sleep > self.max_rate_limit_wait_seconds:
+            return True
+        return retry_state.attempt_number > self.max_retries
+
+    def _tenacity_giveup(self, retry_state: RetryCallState) -> requests.Response:
+        """Convert an exhausted retry into a UserException (budget message takes precedence)."""
+        exc = retry_state.outcome.exception() if retry_state.outcome else None
+        if retry_state.idle_for + retry_state.upcoming_sleep > self.max_rate_limit_wait_seconds:
             raise UserException(
                 "GitHub rate limit not recovered within the wait budget "
                 f"({self.max_rate_limit_wait_seconds}s); reduce scope or re-run later."
-            )
-        logging.warning("Waiting %.0fs before retry (%s).", seconds, reason)
-        self._sleep(seconds)
-        return already_waited + seconds
-
-    def _backoff(self, attempt: int) -> float:
-        return float(BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)))
+            ) from exc
+        if isinstance(exc, _RetryableError):
+            raise UserException(exc.giveup_message) from exc
+        raise UserException("GitHub request failed after exhausting the retry budget.")  # defensive
 
     @staticmethod
     def _is_rate_limited(response: requests.Response) -> bool:
@@ -214,7 +303,8 @@ class GitHubClient:
             return True
         return response.headers.get("x-ratelimit-remaining") == "0"
 
-    def _rate_limit_wait_seconds(self, response: requests.Response) -> float:
+    @staticmethod
+    def _rate_limit_wait_seconds(response: requests.Response) -> float:
         retry_after = response.headers.get("Retry-After")
         if retry_after is not None:
             try:

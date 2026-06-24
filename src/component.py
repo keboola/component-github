@@ -19,7 +19,7 @@ from keboola.component.dao import BaseType, ColumnDefinition, SupportedDataTypes
 from keboola.component.exceptions import UserException
 from keboola.component.sync_actions import SelectElement
 
-from client import DEFAULT_TIMEOUT, GitHubClient
+from client import GitHubClient
 from configuration import AuthType, Configuration
 from credentials import resolve_token
 from endpoints import ENDPOINTS, Endpoint, Target, expand_records, flatten_record, output_columns
@@ -27,7 +27,7 @@ from endpoints import ENDPOINTS, Endpoint, Target, expand_records, flatten_recor
 STATE_LAST_RUN = "last_run"
 
 
-def _redact_authorization(request):
+def _redact_authorization(request: Any) -> Any:
     """VCR request hook: force the recorded ``Authorization`` header to ``Bearer ***``.
 
     The recorder's built-in sanitizer already whitelist-strips ``Authorization`` from
@@ -272,49 +272,41 @@ class Component(ComponentBase):
 
     @sync_action("listOrganizations")
     def list_organizations(self) -> list[SelectElement]:
-        orgs = self._get_json_array("/user/orgs")
-        return [SelectElement(value=o["login"], label=o["login"]) for o in orgs]
+        orgs = self._fetch_json_array("/user/orgs")
+        return [SelectElement(value=login, label=login) for o in orgs if (login := o.get("login"))]
 
     @sync_action("listRepositories")
     def list_repositories(self) -> list[SelectElement]:
         path = f"/orgs/{self.cfg.organization}/repos" if self.cfg.organization else "/user/repos"
-        repos = self._get_json_array(path, params={"per_page": "100"})
-        return [SelectElement(value=r["full_name"], label=r["full_name"]) for r in repos]
+        repos = self._fetch_json_array(path, params={"per_page": "100"})
+        return [SelectElement(value=name, label=name) for r in repos if (name := r.get("full_name"))]
 
     @sync_action("listTeams")
     def list_teams(self) -> list[SelectElement]:
         if not self.cfg.organization:
             raise UserException("Select an organization before loading teams.")
-        teams = self._get_json_array(f"/orgs/{self.cfg.organization}/teams", params={"per_page": "100"})
-        return [SelectElement(value=t["slug"], label=t["name"]) for t in teams]
+        teams = self._fetch_json_array(f"/orgs/{self.cfg.organization}/teams", params={"per_page": "100"})
+        return [
+            SelectElement(value=slug, label=team.get("name") or slug) for team in teams if (slug := team.get("slug"))
+        ]
 
     # ------------------------------------------------------------- sync-action helpers
-    def _call_rate_limit(self) -> dict[str, Any]:
-        response = self.client.session.get(f"{self.client.base_url}/rate_limit", timeout=DEFAULT_TIMEOUT)
+    def _call_rate_limit(self) -> None:
+        """Single guarded GET /rate_limit; network errors are mapped to UserException by the client."""
+        response = self.client.get_json("/rate_limit")
         if response.status_code == 401:
             raise UserException("Invalid or expired token (HTTP 401).")
         if response.status_code >= 400:
             raise UserException(f"GitHub connection check failed (HTTP {response.status_code}).")
-        return self._parse_json(response, "/rate_limit")
 
-    def _get_json_array(self, path: str, params: dict[str, str] | None = None) -> list[dict[str, Any]]:
-        response = self.client.session.get(f"{self.client.base_url}{path}", params=params, timeout=DEFAULT_TIMEOUT)
+    def _fetch_json_array(self, path: str, params: dict[str, str] | None = None) -> list[dict[str, Any]]:
+        """Guarded GET for the dropdown loaders: network error → UserException, 401 → token message."""
+        response, records = self.client.get_json_array(path, params)
         if response.status_code == 401:
             raise UserException("Invalid or expired token (HTTP 401).")
         if response.status_code >= 400:
             raise UserException(f"GitHub request to {path} failed (HTTP {response.status_code}).")
-        body = self._parse_json(response, path)
-        return body if isinstance(body, list) else []
-
-    @staticmethod
-    def _parse_json(response, path: str):
-        """Guard a sync-action JSON parse: a malformed/empty body becomes a clean UserException (exit 1)."""
-        try:
-            return response.json()
-        except ValueError as exc:
-            raise UserException(
-                f"GitHub returned a malformed or empty response for {path} (HTTP {response.status_code})."
-            ) from exc
+        return records
 
 
 if __name__ == "__main__":
