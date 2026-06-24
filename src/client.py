@@ -16,6 +16,7 @@ import logging
 import time
 from collections.abc import Callable, Iterator
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 from keboola.component.exceptions import UserException
@@ -252,8 +253,8 @@ class GitHubClient:
 
         if status == 404:
             raise UserException(
-                f"GitHub resource not found (HTTP 404): {response.url}. Check the organization/repository "
-                "name and that the token has access to it."
+                f"GitHub resource not found (HTTP 404) for {urlsplit(response.url).path}. Check the "
+                "organization/repository name and that the token has access to it."
             )
 
         if status in (403, 429) and self._is_rate_limited(response):
@@ -275,7 +276,7 @@ class GitHubClient:
 
         # Any other 4xx (e.g. 403 that is NOT a rate limit — insufficient scope / SSO) is terminal.
         raise UserException(
-            f"GitHub request to {response.url} failed with HTTP {status}: {self._error_message(response)}. "
+            f"GitHub returned HTTP {status} for {urlsplit(response.url).path}: {self._error_message(response)}. "
             "Check the token scopes/SSO authorization and the target's access."
         )
 
@@ -344,10 +345,16 @@ class GitHubClient:
 
     @staticmethod
     def _error_message(response: requests.Response) -> str:
+        """The GitHub-provided ``message`` field, or a generic phrase — never the raw body.
+
+        Prefer the structured ``message`` GitHub returns on errors; if absent (or the body is not
+        JSON) fall back to a generic phrase rather than echoing the raw response body, so response
+        internals are never surfaced in the user-facing error.
+        """
         try:
             body = response.json()
             if isinstance(body, dict) and "message" in body:
                 return str(body["message"])
         except ValueError:
             pass
-        return response.text[:200]
+        return f"HTTP {response.status_code}"

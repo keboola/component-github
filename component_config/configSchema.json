@@ -6,6 +6,7 @@
     "auth_type": {
       "type": "string",
       "title": "Authentication Method",
+      "description": "How to authenticate to GitHub: a Personal Access Token you supply, or OAuth (authorize via the button below).",
       "enum": ["pat", "oauth"],
       "options": {
         "enum_titles": ["Personal Access Token", "OAuth"]
@@ -47,23 +48,6 @@
       "options": {
         "dependencies": {
           "auth_type": ["oauth"]
-        }
-      },
-      "properties": {
-        "oauth_api": {
-          "type": "object",
-          "title": "OAuth Credentials",
-          "properties": {
-            "id": {
-              "type": "string",
-              "title": "OAuth API ID"
-            },
-            "version": {
-              "type": "integer",
-              "title": "OAuth Version",
-              "default": 3
-            }
-          }
         }
       }
     },

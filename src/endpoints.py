@@ -450,10 +450,13 @@ _register(
         name="repository_commits",
         path_template="/repos/{owner}/{repo}/commits",
         target=Target.OWNER_REPO,
-        primary_key=["sha"],
+        # A commit SHA is not globally unique (a fork shares its base repo's SHAs), and this is an
+        # incremental, shared OWNER_REPO table — so scope the PK by `repository` like the sibling
+        # shared tables (branches/tags/contributors/...) to avoid cross-repo upsert collisions.
+        primary_key=["repository", "sha"],
         envelope=Envelope.ARRAY,
         incremental_param="since",
-        context_columns=("owner", "repo"),
+        context_columns=("owner", "repo", "repository"),
         schema=[
             _str("sha"),
             _str("node_id"),

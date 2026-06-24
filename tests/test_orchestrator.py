@@ -149,6 +149,26 @@ def test_object_map_languages(tmp_path):
     assert schema["language"] == "STRING"
 
 
+def test_repository_commits_pk_is_repository_scoped(tmp_path):
+    """repository_commits shares a table across repos, so its PK must be ['repository', 'sha'].
+
+    A commit SHA is not globally unique (a fork shares its base repo's SHAs); without the
+    `repository` scope, incremental upserts collide across repos extracted into the same table.
+    The synthetic `repository` column must be present in the schema and populated per row.
+    """
+    params = {**PAT, "endpoint": "repository_commits", "repository": "octocat/Hello", "load_type": "full_load"}
+    payload = [{"sha": "abc", "commit": {"message": "init"}}]
+    data_dir = _make_component(tmp_path, params, payload)
+    rows, manifest = _read_table(data_dir, "repository_commits")
+    # _pk reflects schema column order, not PK declaration order; assert as a set.
+    assert set(_pk(manifest)) == {"repository", "sha"}
+    header = [c["name"] for c in manifest["schema"]]
+    assert "repository" in header
+    # the repository column is populated with owner/repo on the written row
+    repo_idx = header.index("repository")
+    assert rows[0][repo_idx] == "octocat/Hello"
+
+
 def test_org_envelope_members(tmp_path):
     params = {**PAT, "endpoint": "organization_members", "organization": "octo-org", "load_type": "full_load"}
     payload = [{"id": 1, "login": "octocat", "site_admin": False}]
