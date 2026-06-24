@@ -157,6 +157,40 @@ def test_incremental_writes_last_run_and_since(tmp_path):
     assert "last_run" in new_state and new_state["last_run"] != ""
 
 
+def test_non_incremental_endpoint_forces_full_load(tmp_path):
+    """A snapshot endpoint (no since / no sort) writes incremental=false even when the row asks
+    for incremental_load, so rows deleted on GitHub are purged (§2.3 / Phase 8 TODO 2)."""
+    params = {
+        **PAT,
+        "endpoint": "organization_members",
+        "organization": "octo-org",
+        "load_type": "incremental_load",
+    }
+    payload = [{"id": 1, "login": "octocat", "site_admin": False}]
+    data_dir = _make_component(tmp_path, params, payload)
+    _rows, manifest = _read_table(data_dir, "organization_members")
+    # incremental upsert is suppressed for a non-incremental-capable endpoint -> full replace
+    assert manifest["incremental"] is False
+    # and no watermark is advanced for a snapshot endpoint
+    state_file = data_dir / "out" / "state.json"
+    if state_file.exists():
+        assert json.loads(state_file.read_text()) == {}
+
+
+def test_repository_branches_forces_full_load(tmp_path):
+    """A second snapshot endpoint asked to load incrementally still writes a full-load manifest."""
+    params = {
+        **PAT,
+        "endpoint": "repository_branches",
+        "repository": "octocat/Hello",
+        "load_type": "incremental_load",
+    }
+    payload = [{"name": "main", "commit": {"sha": "abc", "url": "u"}, "protected": True}]
+    data_dir = _make_component(tmp_path, params, payload)
+    _rows, manifest = _read_table(data_dir, "repository_branches")
+    assert manifest["incremental"] is False
+
+
 def test_full_load_does_not_write_state(tmp_path):
     params = {**PAT, "endpoint": "repository", "repository": "octocat/Hello", "load_type": "full_load"}
     payload = [{"id": 1, "name": "Hello"}]

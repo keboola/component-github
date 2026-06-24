@@ -8,10 +8,12 @@ root logger to DEBUG on its own, so a model field would be redundant (see spec Â
 """
 
 from enum import StrEnum
-from typing import Self
+from typing import Any, Self
 
 from keboola.component.exceptions import UserException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, computed_field, model_validator
+
+from endpoints import ENDPOINTS
 
 
 class AuthType(StrEnum):
@@ -22,6 +24,14 @@ class AuthType(StrEnum):
 class LoadType(StrEnum):
     full_load = "full_load"
     incremental_load = "incremental_load"
+
+
+class State(StrEnum):
+    """Closed set for the issue/pull/milestone ``state`` filters."""
+
+    all = "all"
+    open = "open"
+    closed = "closed"
 
 
 class Configuration(BaseModel):
@@ -38,7 +48,6 @@ class Configuration(BaseModel):
     # --- root: authentication + global options ---
     auth_type: AuthType = AuthType.pat
     github_token: str = Field(alias="#github_token", default="")
-    incremental: bool = True
 
     # --- row: endpoint selection + target + filters ---
     endpoint: str = ""
@@ -48,9 +57,9 @@ class Configuration(BaseModel):
     pull_number: int | None = None
     load_type: LoadType = LoadType.incremental_load
     initial_since: str = ""
-    issue_state: str = "all"
-    pull_state: str = "all"
-    milestone_state: str = "all"
+    issue_state: State = State.all
+    pull_state: State = State.all
+    milestone_state: State = State.all
 
     @computed_field
     @property
@@ -69,9 +78,17 @@ class Configuration(BaseModel):
             )
         return self
 
-    def __init__(self, **data):
+    @model_validator(mode="after")
+    def _validate_endpoint(self) -> Self:
+        # Empty endpoint is allowed: sync actions instantiate the model before the form is
+        # complete. A non-empty endpoint must be a known registry key (run() also re-checks).
+        if self.endpoint and self.endpoint not in ENDPOINTS:
+            raise UserException(f"Unknown endpoint '{self.endpoint}'. Choose one of: {', '.join(sorted(ENDPOINTS))}.")
+        return self
+
+    def __init__(self, **data: Any):
         try:
             super().__init__(**data)
         except ValidationError as e:
             error_messages = [f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in e.errors()]
-            raise UserException(f"Configuration validation error: {', '.join(error_messages)}")
+            raise UserException(f"Configuration validation error: {', '.join(error_messages)}") from e

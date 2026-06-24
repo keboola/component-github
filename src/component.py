@@ -12,6 +12,7 @@ import csv
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Any
 
 from keboola.component.base import ComponentBase, sync_action
 from keboola.component.dao import BaseType, ColumnDefinition, SupportedDataTypes
@@ -40,7 +41,7 @@ def _redact_authorization(request):
     return request
 
 
-def _build_vcr_sanitizers() -> list:
+def _build_vcr_sanitizers() -> list[Any]:
     """Build the VCR sanitizer chain, or ``[]`` when the test-only ``keboola.vcr`` is absent.
 
     ``keboola.vcr`` ships with the ``keboola.datadirtest`` *dev* dependency and is not present
@@ -89,23 +90,36 @@ class Component(ComponentBase):
         endpoint = self._endpoint()
         path, context = self._build_path(endpoint)
         run_started_at = datetime.now(UTC)
-        since = self._since() if self.cfg.incremental_load else None
+        incremental = self._incremental(endpoint)
+        since = self._since() if incremental else None
         params, stop_paging = self._fetch_params(endpoint, since)
 
         rows = self._collect_rows(endpoint, path, context, params, stop_paging)
-        self._write_table(endpoint, rows)
+        self._write_table(endpoint, rows, incremental)
 
-        if self.cfg.incremental_load:
+        if incremental:
             self.write_state_file({STATE_LAST_RUN: run_started_at.isoformat()})
 
     # ------------------------------------------------------------------- run() helpers
+    def _incremental(self, endpoint: Endpoint) -> bool:
+        """Effective incremental-load flag for this row.
+
+        Incremental upsert is used ONLY when the endpoint is incremental-capable (it carries a
+        server-side ``since``/``created`` param or sorts by ``updated`` for client-side stop-paging)
+        AND the row's ``load_type`` is ``incremental_load``. Endpoints with no incremental signal
+        (branches, tags, members, languages, …) always write a full load (``incremental=False`` →
+        full replace) so rows deleted on GitHub are purged rather than lingering forever. See spec §2.3.
+        """
+        capable = bool(endpoint.incremental_param) or endpoint.incremental_sort
+        return capable and self.cfg.incremental_load
+
     def _resolve_token(self) -> str:
         oauth_credentials = None
         if self.cfg.auth_type == AuthType.oauth:
             oauth_credentials = self._oauth_credentials()
         return resolve_token(self.cfg, oauth_credentials)
 
-    def _oauth_credentials(self) -> dict | None:
+    def _oauth_credentials(self) -> dict[str, Any] | None:
         """The broker-injected ``authorization.oauth_api.credentials`` (guarded for absence)."""
         config_data = self.configuration.config_data or {}
         return config_data.get("authorization", {}).get("oauth_api", {}).get("credentials")
@@ -151,7 +165,7 @@ class Component(ComponentBase):
         return "", ""
 
     @staticmethod
-    def _require_targets(endpoint: Endpoint, values: dict) -> None:
+    def _require_targets(endpoint: Endpoint, values: dict[str, Any]) -> None:
         """Belt-and-braces validation behind the schema's conditional fields."""
         required: dict[Target, list[str]] = {
             Target.NONE: [],
@@ -172,9 +186,11 @@ class Component(ComponentBase):
         state = self.get_state_file() or {}
         return state.get(STATE_LAST_RUN) or self.cfg.initial_since or None
 
-    def _fetch_params(self, endpoint: Endpoint, since: str | None):
+    def _fetch_params(
+        self, endpoint: Endpoint, since: str | None
+    ) -> tuple[dict[str, Any], Callable[[dict[str, Any]], bool] | None]:
         """Build query params + the optional client-side stop-paging predicate."""
-        params = dict(endpoint.default_params)
+        params: dict[str, Any] = dict(endpoint.default_params)
         for row_field, query_param in endpoint.filter_params.items():
             params[query_param] = getattr(self.cfg, row_field)
 
@@ -187,10 +203,10 @@ class Component(ComponentBase):
         return params, stop_paging
 
     @staticmethod
-    def _stop_paging_predicate(since: str):
+    def _stop_paging_predicate(since: str) -> Callable[[dict[str, Any]], bool]:
         watermark = datetime.fromisoformat(since)
 
-        def stop(last_record: dict) -> bool:
+        def stop(last_record: dict[str, Any]) -> bool:
             updated = last_record.get("updated_at")
             if not isinstance(updated, str):
                 return False
@@ -206,11 +222,11 @@ class Component(ComponentBase):
         endpoint: Endpoint,
         path: str,
         context: dict[str, str],
-        params: dict,
-        stop_paging: Callable[[dict], bool] | None,
-    ) -> list[dict]:
+        params: dict[str, Any],
+        stop_paging: Callable[[dict[str, Any]], bool] | None,
+    ) -> list[dict[str, Any]]:
         """Fetch, expand object-maps, drop PR rows, and flatten to the declared columns."""
-        rows: list[dict] = []
+        rows: list[dict[str, Any]] = []
         for payload in self.client.fetch(endpoint, path, params, stop_paging=stop_paging):
             for record in expand_records(endpoint, payload, context):
                 if endpoint.drop_predicate and record.get(endpoint.drop_predicate) is not None:
@@ -218,12 +234,12 @@ class Component(ComponentBase):
                 rows.append(flatten_record(endpoint, record, context))
         return rows
 
-    def _write_table(self, endpoint: Endpoint, rows: list[dict]) -> None:
+    def _write_table(self, endpoint: Endpoint, rows: list[dict[str, Any]], incremental: bool) -> None:
         columns = output_columns(endpoint)
         table = self.create_out_table_definition(
             f"{endpoint.name}.csv",
             primary_key=endpoint.primary_key,
-            incremental=self.cfg.incremental_load,
+            incremental=incremental,
             schema=self._build_schema(endpoint),
             # Headerless invariant (§6.5): the schema names the columns; CSV carries no header.
             has_header=False,
@@ -273,7 +289,7 @@ class Component(ComponentBase):
         return [SelectElement(value=t["slug"], label=t["name"]) for t in teams]
 
     # ------------------------------------------------------------- sync-action helpers
-    def _call_rate_limit(self) -> dict:
+    def _call_rate_limit(self) -> dict[str, Any]:
         response = self.client.session.get(f"{self.client.base_url}/rate_limit", timeout=DEFAULT_TIMEOUT)
         if response.status_code == 401:
             raise UserException("Invalid or expired token (HTTP 401).")
@@ -281,7 +297,7 @@ class Component(ComponentBase):
             raise UserException(f"GitHub connection check failed (HTTP {response.status_code}).")
         return self._parse_json(response, "/rate_limit")
 
-    def _get_json_array(self, path: str, params: dict | None = None) -> list[dict]:
+    def _get_json_array(self, path: str, params: dict[str, str] | None = None) -> list[dict[str, Any]]:
         response = self.client.session.get(f"{self.client.base_url}{path}", params=params, timeout=DEFAULT_TIMEOUT)
         if response.status_code == 401:
             raise UserException("Invalid or expired token (HTTP 401).")

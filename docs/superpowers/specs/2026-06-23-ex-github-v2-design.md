@@ -65,10 +65,12 @@ pagination / incremental / required params is in §4.
 - `state.json` stores a single key `last_run` = ISO-8601 UTC timestamp captured **before** fetch,
   written **after** a successful write. First run: `last_run` absent → seed from row's optional
   `initial_since`, else full history.
-- Endpoints with no incremental signal (branches, tags, teams, members, languages, releases, …):
-  `load_type` still defaults to `incremental_load` so the table upserts on PK (no unbounded growth),
-  but no `since` is sent — every run is a full fetch that overwrites/upserts. The watermark is still
-  written so a later mode change "just works".
+- Endpoints with no incremental signal (branches, tags, teams, members, languages, releases, …)
+  always use **full_load (replace), not upsert** — even if the row's `load_type` is
+  `incremental_load`, the output mapping is forced to `incremental=False` so rows deleted on GitHub
+  are purged each run instead of lingering forever. No `since`/state watermark applies to these
+  snapshot endpoints. (Intentional correction to the original draft of this section, which had them
+  upsert; see Phase 8 audit TODO 2.)
 
 ### 2.4 Secrets → `#`-prefixed
 

@@ -17,11 +17,23 @@
       "type": "string",
       "title": "GitHub Personal Access Token",
       "format": "password",
-      "description": "Create a classic (<code>ghp_…</code>) or fine-grained (<code>github_pat_…</code>) PAT in <strong>GitHub → Settings → Developer settings → Personal access tokens</strong>. Required scopes: <code>read:org</code>, <code>repo</code>. If your organization enforces SAML SSO you must also SSO-authorize the token before use.",
+      "description": "Your GitHub Personal Access Token.",
       "propertyOrder": 20,
       "options": {
+        "tooltip": "Create a classic (`ghp_…`) or fine-grained (`github_pat_…`) PAT in **GitHub → Settings → Developer settings → Personal access tokens**. Required scopes: `read:org`, `repo`. If your organization enforces SAML SSO you must also SSO-authorize the token before use.",
         "dependencies": {
           "auth_type": ["pat"]
+        }
+      }
+    },
+    "test_connection": {
+      "type": "button",
+      "format": "test-connection",
+      "propertyOrder": 25,
+      "options": {
+        "async": {
+          "label": "Test Connection",
+          "action": "testConnection"
         }
       }
     },
@@ -51,12 +63,6 @@
           }
         }
       }
-    },
-    "incremental": {
-      "type": "boolean",
-      "title": "Incremental Output",
-      "default": true,
-      "propertyOrder": 100
     },
     "debug": {
       "type": "boolean",

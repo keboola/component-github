@@ -71,7 +71,7 @@ class GitHubClient:
         endpoint: Endpoint,
         path: str,
         params: dict[str, Any] | None = None,
-        stop_paging: Callable[[dict], bool] | None = None,
+        stop_paging: Callable[[dict[str, Any]], bool] | None = None,
     ) -> Iterator[Any]:
         """Yield unwrapped records for an endpoint, following pagination to the end.
 
@@ -102,7 +102,7 @@ class GitHubClient:
                 return
 
             page_records = self._unwrap(endpoint, payload)
-            last_record: dict | None = None
+            last_record: dict[str, Any] | None = None
             for record in page_records:
                 last_record = record
                 yield record
@@ -114,7 +114,7 @@ class GitHubClient:
             url = self._next_link(response)
 
     @staticmethod
-    def _unwrap(endpoint: Endpoint, payload: Any) -> list[dict]:
+    def _unwrap(endpoint: Endpoint, payload: Any) -> list[dict[str, Any]]:
         if endpoint.envelope == Envelope.OBJECT:
             return [payload] if isinstance(payload, dict) else []
         if endpoint.envelope == Envelope.ARRAY:

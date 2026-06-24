@@ -10,13 +10,14 @@ auth-agnostic. This module turns either credential source into a bare token stri
 """
 
 import json
+from typing import Any
 
 from keboola.component.exceptions import UserException
 
 from configuration import AuthType, Configuration
 
 
-def resolve_token(configuration: Configuration, oauth_credentials: dict | None) -> str:
+def resolve_token(configuration: Configuration, oauth_credentials: dict[str, Any] | None) -> str:
     """Return the bearer token string for the configured auth method.
 
     :param configuration: the validated component configuration.
@@ -38,7 +39,7 @@ def _resolve_pat(configuration: Configuration) -> str:
     return token
 
 
-def _resolve_oauth_token(oauth_credentials: dict | None) -> str:
+def _resolve_oauth_token(oauth_credentials: dict[str, Any] | None) -> str:
     if not oauth_credentials:
         raise UserException(
             "OAuth authentication selected but no broker credentials were injected. "
@@ -52,7 +53,7 @@ def _resolve_oauth_token(oauth_credentials: dict | None) -> str:
     try:
         token_response = json.loads(raw_data)
     except (json.JSONDecodeError, TypeError) as exc:
-        raise UserException(f"OAuth '#data' is not valid JSON: {exc}")
+        raise UserException(f"OAuth '#data' is not valid JSON: {exc}") from exc
 
     access_token = token_response.get("access_token") if isinstance(token_response, dict) else None
     if not access_token:

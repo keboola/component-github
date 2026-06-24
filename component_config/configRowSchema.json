@@ -82,6 +82,7 @@
     "organization": {
       "type": "string",
       "title": "Organization",
+      "format": "select",
       "default": "",
       "enum": [],
       "propertyOrder": 20,
@@ -107,6 +108,7 @@
     "team_slug": {
       "type": "string",
       "title": "Team",
+      "format": "select",
       "default": "",
       "enum": [],
       "propertyOrder": 30,
@@ -126,6 +128,7 @@
     "repository": {
       "type": "string",
       "title": "Repository",
+      "format": "select",
       "default": "",
       "enum": [],
       "propertyOrder": 40,

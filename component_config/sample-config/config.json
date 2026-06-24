@@ -1,21 +1,10 @@
 {
-  "storage": {
-    "input": {
-      "files": [],
-      "tables": [
-        {
-          "source": "in.c-example.example",
-          "destination": "example.csv"
-        }
-      ]
-    },
-    "output": {
-      "files": [],
-      "tables": []
-    }
-  },
   "parameters": {
-    "#api_token": "your-secret-token",
-    "debug": false
+    "auth_type": "pat",
+    "#github_token": "ghp_your_personal_access_token",
+    "endpoint": "repository_issues",
+    "repository": "octocat/Spoon-Knife",
+    "load_type": "incremental_load",
+    "issue_state": "all"
   }
 }
