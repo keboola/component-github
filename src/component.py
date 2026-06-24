@@ -120,9 +120,14 @@ class Component(ComponentBase):
         return resolve_token(self.cfg, oauth_credentials)
 
     def _oauth_credentials(self) -> dict[str, Any] | None:
-        """The broker-injected ``authorization.oauth_api.credentials`` (guarded for absence)."""
+        """The broker-injected ``authorization.oauth_api.credentials`` (guarded for absence).
+
+        Each hop falls back to ``{}`` so a present-but-null ``authorization`` / ``oauth_api`` in
+        config_data resolves to no credentials (clean UserException via the resolver, exit 1)
+        rather than an AttributeError on ``None`` (uncaught, exit 2).
+        """
         config_data = self.configuration.config_data or {}
-        return config_data.get("authorization", {}).get("oauth_api", {}).get("credentials")
+        return ((config_data.get("authorization") or {}).get("oauth_api") or {}).get("credentials")
 
     def _endpoint(self) -> Endpoint:
         endpoint = ENDPOINTS.get(self.cfg.endpoint)

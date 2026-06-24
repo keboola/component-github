@@ -137,7 +137,7 @@
         "async": {
           "label": "Load Repositories",
           "action": "listRepositories",
-          "autoload": ["organization"]
+          "autoload": ["organization", "endpoint"]
         },
         "dependencies": {
           "endpoint": [

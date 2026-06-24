@@ -74,6 +74,24 @@ def test_oauth_missing_credentials_raises(tmp_path):
             Component()
 
 
+def test_oauth_null_authorization_blocks_raises_userexception_not_attributeerror(tmp_path):
+    """Present-but-null authorization/oauth_api must resolve to no credentials (clean exit 1).
+
+    A `.get(...)` on an explicit null would raise AttributeError (uncaught -> exit 2); the
+    `or {}` guard at each hop turns it into the same OAuth UserException as the absent case.
+    """
+    config = {
+        "parameters": {"auth_type": "oauth", "endpoint": "repository", "repository": "o/r"},
+        "authorization": {"oauth_api": None},
+    }
+    data_dir = _datadir(tmp_path, config)
+    with mock.patch.dict(os.environ, {"KBC_DATADIR": str(data_dir)}):
+        from component import Component
+
+        with pytest.raises(UserException, match="OAuth"):
+            Component()
+
+
 # --------------------------------------------------------------------- sync actions
 
 _SYNC_CONFIG = {"parameters": {"#github_token": "ghp_x", "auth_type": "pat", "endpoint": ""}}
