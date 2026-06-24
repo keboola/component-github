@@ -1,7 +1,7 @@
 {
   "parameters": {
     "auth_type": "pat",
-    "#github_token": "ghp_your_personal_access_token",
+    "#github_token": "YOUR_GITHUB_TOKEN_HERE",
     "endpoint": "repository_issues",
     "repository": "octocat/Spoon-Knife",
     "load_type": "incremental_load",

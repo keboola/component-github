@@ -38,10 +38,14 @@ class State(StrEnum):
 class Configuration(BaseModel):
     """Merged root + row configuration for one extraction.
 
-    All async-loaded fields (``organization``, ``team_slug``, ``repository``) and the token
-    default to empty so sync actions — which instantiate this before the form is complete —
-    never trip validation. Presence of a required target is enforced in ``run()`` against the
-    registry, not here. See the sync-action gotcha in component-develop's configuration model.
+    The async-loaded target fields (``organization``, ``team_slug``, ``repository``) and the
+    ``endpoint`` default to empty so sync actions — which instantiate this before the form is
+    complete — don't trip *target-presence* validation; presence of a required target is
+    enforced in ``run()`` against the registry, not here. The PAT, by contrast, IS validated
+    here: ``_validate_auth`` raises when ``auth_type=pat`` (the default) and ``#github_token``
+    is empty, so testConnection on an empty form fails with a clear "token required" message
+    rather than a confusing downstream error. See the sync-action gotcha in component-develop's
+    configuration model.
     """
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
