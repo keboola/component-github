@@ -99,7 +99,7 @@ full history on the first run.
 | `ORG` | organizations, organization_* | each selected org | all orgs via `GET /user/orgs` |
 | `OWNER_REPO` | repository, repository_* | each selected `owner/repo` | all repos in each selected org (`GET /orgs/{org}/repos`), or all user repos (`GET /user/repos`) if no org selected |
 | `ORG_TEAM` | team_members | each selected `org/team_slug` | all teams in each selected org (`GET /orgs/{org}/teams`) |
-| `OWNER_REPO_PULL` | repository_pull_reviews | each selected `owner/repo` + the single `pull_number` | **not fanned on repos blindly** — see §7.1 |
+| `OWNER_REPO_PULL` | repository_pull_reviews | `pull_number` set → that one PR (single repo); `pull_number` empty → **nested fan-out** (repo → its PRs → each PR's reviews) | all PRs in each selected repo, across all repos in the org if `repository` is empty — see §7.1 |
 
 Enumeration reuses the exact calls the sync actions already make (`list_organizations`,
 `list_repositories`, `list_teams` in `component.py:289-307`), refactored so both the sync action and
@@ -138,7 +138,8 @@ State shape changes from a single mark to a per-target map:
 { "targets": { "keboola/component-github": "2026-06-01T10:00:00+00:00", "keboola/other": "2026-05-20T…" } }
 ```
 
-- Target key: `owner/repo` (OWNER_REPO), `org` (ORG), `org/team_slug` (ORG_TEAM).
+- Target key: `owner/repo` (OWNER_REPO), `org` (ORG), `org/team_slug` (ORG_TEAM). For
+  `repository_pull_reviews` (§7.1) the watermark bounds the **PR scan** and is keyed by `owner/repo`.
 - `_since(endpoint, target)` returns `state["targets"][key]` → else the row's parsed `initial_since`
   (§8) → else `None` (full history).
 - After a successful fetch of a target, its watermark is set to this run's start time; **only succeeded
@@ -157,11 +158,24 @@ the rest during implementation so multi-target upsert can't collide.
 
 ## 7. Edge cases
 
-### 7.1 `repository_pull_reviews`
-Needs a specific `pull_number`; "all repos × one PR number" is meaningless (PR #5 differs per repo).
-Decision: this endpoint requires **exactly one** selected repository plus `pull_number`; if multiple
-repos (or empty = all) are given, raise a clear `UserException`. Documented in its tooltip. (A future
-"all reviews for all open PRs" mode is out of scope.)
+### 7.1 `repository_pull_reviews` — nested fan-out
+GitHub has **no** repo-level "list all reviews" endpoint; reviews exist only under
+`/repos/{owner}/{repo}/pulls/{pull_number}/reviews`. Forcing one row per PR (thousands of rows for an
+org) is unacceptable, so this endpoint does a **nested fan-out** instead, preserving the "empty = all"
+promise:
+
+- **`pull_number` set:** requires exactly one selected repository; fetch that single PR's reviews
+  (targeted mode for inspecting one PR).
+- **`pull_number` empty (the default):** for each resolved repo (selected repos, or *all* repos in the
+  selected org(s) when `repository` is empty), list its PRs via `/repos/{owner}/{repo}/pulls` and, for
+  each PR, fetch its reviews. Each output row is tagged with `owner` / `repo` / `pull_number` context.
+
+**Cost & incremental bounding.** The intermediate PR listing is paged `sort=updated` desc with the
+per-target stop-paging watermark (the same mechanism `repository_pulls` already uses), so an
+**incremental** run only re-scans PRs updated since the last run — reviews have no `since` filter, but
+we avoid re-walking untouched PRs. The resolved repo count is logged up front (§7.2). A **full first
+run** over ~1000 repos is inherently large (repos × PRs × 1 reviews call); that cost is intrinsic to the
+data and is the user's choice, but incremental runs stay bounded to recently-touched PRs.
 
 ### 7.2 Cost of `empty = all`
 `empty org + empty repo` on a repo endpoint enumerates every accessible repo → potentially hundreds of
@@ -183,7 +197,9 @@ pruning needed; state stays small relative to API volume.
   clean `UserException`. A `parsed_initial_since` computed/helper returns the absolute ISO instant fed to
   GitHub and to the watermark seed (so downstream only ever sees ISO).
 - `_validate_endpoint` unchanged. The runtime target-presence check in `_require_targets` is relaxed:
-  empty is allowed (means "all"); only `repository_pull_reviews` enforces single-repo + `pull_number`.
+  empty is allowed (means "all"). For `repository_pull_reviews` the only constraint is that a **set**
+  `pull_number` requires exactly one selected repo (targeted mode); an **empty** `pull_number` triggers
+  the nested fan-out (§7.1).
 
 ## 9. Dependencies
 
@@ -203,14 +219,15 @@ both relative phrases and absolute formats, so it replaces the bespoke `datetime
   distinct `owner/repo` context), an `empty = all` case (mock enumeration), and the back-compat case
   (string target coerces to list).
 - **Config model unit tests**: string→list coercion; relative-date parsing (`"5 days ago"` → instant,
-  `"not a date"` → `UserException`); `repository_pull_reviews` multi-repo rejection.
+  `"not a date"` → `UserException`); `repository_pull_reviews` with `pull_number` set rejects >1 repo.
+- **`repository_pull_reviews` nested fan-out** (§7.1): `pull_number` empty over 1 repo with 2 PRs →
+  reviews for both PRs in one table, tagged by `pull_number`; incremental PR-scan stops at the watermark.
 - **State**: per-target read/write; legacy `last_run` migration seeds all targets.
 - **VCR**: re-record one incremental fan-out endpoint (e.g. `repository_commits` over 2 repos) to lock
   per-target `since` behaviour.
 
 ## 12. Out of scope
 
-- Auto-discovering PR numbers for `repository_pull_reviews`.
 - A global org/repo scope in root config.
 - Any change to authentication, the endpoint catalog, or output column definitions beyond the §6
   context-column audit.
