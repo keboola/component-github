@@ -192,11 +192,11 @@ class Component(ComponentBase):
 
         def stop(last_record: dict) -> bool:
             updated = last_record.get("updated_at")
-            if not updated:
+            if not isinstance(updated, str):
                 return False
             try:
                 return datetime.fromisoformat(updated.replace("Z", "+00:00")) < watermark
-            except ValueError, AttributeError:
+            except ValueError:
                 return False
 
         return stop
