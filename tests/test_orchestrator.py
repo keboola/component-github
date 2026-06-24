@@ -30,6 +30,12 @@ def _write_datadir(tmp_path: Path, parameters: dict, state: dict | None = None) 
 
 def _make_component(tmp_path, parameters, fetch_returns, state=None, config_data_extra=None):
     """Construct a Component against a temp datadir with GitHubClient.fetch stubbed."""
+    data_dir, _comp = _run_component(tmp_path, parameters, fetch_returns, state, config_data_extra)
+    return data_dir
+
+
+def _run_component(tmp_path, parameters, fetch_returns, state=None, config_data_extra=None):
+    """Run a Component with fetch stubbed; return ``(data_dir, comp)`` so callers can inspect fetch."""
     data_dir = _write_datadir(tmp_path, parameters, state)
     if config_data_extra:
         cfg_path = data_dir / "config.json"
@@ -47,7 +53,14 @@ def _make_component(tmp_path, parameters, fetch_returns, state=None, config_data
             comp = Component()
         comp.client.fetch.return_value = iter(fetch_returns)  # ty: ignore[unresolved-attribute]
         comp.run()
-    return data_dir
+    return data_dir, comp
+
+
+def _fetch_params(comp) -> dict:
+    """The query params passed to the stubbed client.fetch (3rd positional arg of run())."""
+    args, kwargs = comp.client.fetch.call_args  # ty: ignore[unresolved-attribute]
+    # component.run() calls client.fetch(endpoint, path, params, stop_paging=...)
+    return args[2] if len(args) > 2 else kwargs.get("params", {})
 
 
 def _pk(manifest) -> list[str]:
@@ -211,3 +224,38 @@ def test_missing_target_raises_userexception(tmp_path):
             comp = Component()
         with pytest.raises(UserException, match="requires"):
             comp.run()
+
+
+# --------------------------------------------------- incremental watermark param formatting (TODO 2)
+
+
+def test_workflow_runs_incremental_created_filter_uses_date_range(tmp_path):
+    """repository_workflow_runs incremental must send `created=>=YYYY-MM-DD`, not a bare instant.
+
+    GitHub's /actions/runs `created` filter wants date-range grammar; injecting the raw ISO
+    watermark silently under-fetches. The per-param formatter maps the watermark to >= + the date.
+    """
+    params = {
+        **PAT,
+        "endpoint": "repository_workflow_runs",
+        "repository": "octocat/Hello",
+        "load_type": "incremental_load",
+    }
+    state = {"last_run": "2024-03-15T08:30:00+00:00"}
+    payload = [{"id": 1, "name": "CI", "status": "completed"}]
+    _data_dir, comp = _run_component(tmp_path, params, payload, state=state)
+    assert _fetch_params(comp)["created"] == ">=2024-03-15"
+
+
+def test_commits_incremental_since_passes_iso_instant_verbatim(tmp_path):
+    """A plain `since` endpoint still injects the raw ISO watermark (default formatter unchanged)."""
+    params = {
+        **PAT,
+        "endpoint": "repository_commits",
+        "repository": "octocat/Hello",
+        "load_type": "incremental_load",
+    }
+    state = {"last_run": "2024-03-15T08:30:00+00:00"}
+    payload = [{"sha": "abc"}]
+    _data_dir, comp = _run_component(tmp_path, params, payload, state=state)
+    assert _fetch_params(comp)["since"] == "2024-03-15T08:30:00+00:00"

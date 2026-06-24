@@ -3,6 +3,7 @@
 import time
 
 import pytest
+import requests
 import responses
 from keboola.component.exceptions import UserException
 
@@ -166,6 +167,44 @@ def test_non_rate_limit_403_is_terminal(client):
     with pytest.raises(UserException, match="HTTP 403"):
         list(client.fetch(ep, "/orgs/acme/members", {"per_page": "100"}))
     assert len(responses.calls) == 1  # not retried
+
+
+@responses.activate
+def test_5xx_then_200_returns_records_after_retry(client):
+    """A transient 500 is retried; the subsequent 200 is returned (exercises the status>=500 branch)."""
+    responses.add(
+        responses.GET,
+        "https://api.github.com/repos/o/r/issues",
+        json={"message": "server error"},
+        status=500,
+    )
+    responses.add(
+        responses.GET,
+        "https://api.github.com/repos/o/r/issues",
+        json=[{"id": 7}],
+        status=200,
+    )
+    ep = ENDPOINTS["repository_issues"]
+    out = list(client.fetch(ep, "/repos/o/r/issues", {"per_page": "100"}))
+    assert [r["id"] for r in out] == [7]
+    assert len(responses.calls) == 2  # one failed attempt, one success
+
+
+@responses.activate
+def test_repeated_connection_error_exhausts_budget_raises_userexception():
+    """Repeated network errors give up after max_retries with a clean UserException (network branch)."""
+    responses.add(
+        responses.GET,
+        "https://api.github.com/repos/o/r/issues",
+        body=requests.exceptions.ConnectionError("connection reset by peer"),
+    )
+    # tiny retry budget + no-op sleep -> never blocks, gives up quickly on the network _RetryableError
+    c = GitHubClient(token="ghp_test", max_retries=2, sleep=lambda _s: None)
+    ep = ENDPOINTS["repository_issues"]
+    with pytest.raises(UserException, match="GitHub request failed after"):
+        list(c.fetch(ep, "/repos/o/r/issues", {"per_page": "100"}))
+    # initial attempt + max_retries retries, all ConnectionError
+    assert len(responses.calls) == 3
 
 
 def test_session_headers_set():

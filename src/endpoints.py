@@ -10,7 +10,7 @@ See spec §4.1 (catalog), §4.5 (response shapes), §6.3 (registry shape), §6.5
 """
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum, auto
 from typing import Any
@@ -68,6 +68,25 @@ class ColumnDef:
         return self.source if self.source is not None else self.name
 
 
+def _iso_since(watermark: str) -> str:
+    """Default incremental-param formatter: pass the watermark through verbatim.
+
+    Most ``since``-style filters (e.g. ``/commits?since=``, ``/issues?since=``) accept a bare
+    ISO-8601 instant, so the stored watermark is used as-is.
+    """
+    return watermark
+
+
+def _created_date_range(watermark: str) -> str:
+    """Format the watermark for GitHub Actions' ``created`` filter (date-range grammar).
+
+    ``GET /actions/runs`` does NOT accept a bare ISO instant on ``created`` — it wants the
+    range grammar ``>=YYYY-MM-DD`` (a date, not a timestamp). Injecting the raw watermark
+    silently under-fetches, so map it to ``>=`` + the date portion. See spec §4.x / Phase 8 TODO 2.
+    """
+    return f">={watermark[:10]}"
+
+
 @dataclass(frozen=True)
 class Endpoint:
     """A single endpoint descriptor — see spec §6.3."""
@@ -80,11 +99,26 @@ class Endpoint:
     schema: list[ColumnDef]
     envelope_key: str | None = None  # the inner array key when envelope == WRAPPED
     incremental_param: str | None = None  # server-side "changed since" query param (e.g. "since")
+    # How the stored watermark is rendered into incremental_param (defaults to a bare ISO instant;
+    # /actions/runs `created` needs date-range grammar — see _created_date_range).
+    incremental_param_format: Callable[[str], str] = _iso_since
     incremental_sort: bool = False  # sort=updated&direction=desc + client-side stop-paging
     default_params: dict[str, str] = field(default_factory=lambda: {"per_page": "100"})
     filter_params: dict[str, str] = field(default_factory=dict)  # row field -> query param name
     drop_predicate: str | None = None  # drop records carrying this top-level key (issues PR-split)
     context_columns: tuple[str, ...] = ()  # synthetic target columns added per record
+
+    def __post_init__(self) -> None:
+        # An incremental_sort endpoint relies on the server returning newest-first so the
+        # client-side stop-paging predicate (component._stop_paging_predicate) can short-circuit;
+        # that only holds when it requests sort=updated & direction=desc. Guard future endpoints.
+        if self.incremental_sort:
+            assert self.default_params.get("sort") == "updated", (
+                f"Endpoint '{self.name}' sets incremental_sort but default_params lacks sort=updated."
+            )
+            assert self.default_params.get("direction") == "desc", (
+                f"Endpoint '{self.name}' sets incremental_sort but default_params lacks direction=desc."
+            )
 
 
 # --- shared column fragments (kept terse; native types per §6.5) ---
@@ -799,6 +833,7 @@ _register(
         envelope=Envelope.WRAPPED,
         envelope_key="workflow_runs",
         incremental_param="created",  # /actions/runs filters by `created`, not `since`
+        incremental_param_format=_created_date_range,  # `created` wants >=YYYY-MM-DD, not a bare instant
         context_columns=("owner", "repo"),
         schema=[
             _int("id"),

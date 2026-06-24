@@ -196,7 +196,9 @@ class Component(ComponentBase):
 
         stop_paging = None
         if since and endpoint.incremental_param:
-            params[endpoint.incremental_param] = since
+            # The watermark is rendered per-endpoint: most `since` params take a bare ISO instant,
+            # but /actions/runs `created` needs date-range grammar (>=YYYY-MM-DD) — see endpoints.
+            params[endpoint.incremental_param] = endpoint.incremental_param_format(since)
         elif since and endpoint.incremental_sort:
             # No server `since` (e.g. /pulls) — sort desc and stop once we cross the watermark.
             stop_paging = self._stop_paging_predicate(since)
@@ -204,7 +206,16 @@ class Component(ComponentBase):
 
     @staticmethod
     def _stop_paging_predicate(since: str) -> Callable[[dict[str, Any]], bool]:
-        watermark = datetime.fromisoformat(since)
+        # `since` is normally pre-validated (Configuration._validate_initial_since) or our own
+        # ISO `last_run` watermark, but guard the build-time parse too: a malformed watermark
+        # (e.g. a hand-edited state file) must surface as a clean UserException (exit 1), never an
+        # uncaught ValueError (exit 2).
+        try:
+            watermark = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise UserException(
+                "Incremental watermark must be an ISO-8601 timestamp, e.g. 2024-01-31T00:00:00Z"
+            ) from exc
 
         def stop(last_record: dict[str, Any]) -> bool:
             updated = last_record.get("updated_at")
@@ -292,21 +303,17 @@ class Component(ComponentBase):
 
     # ------------------------------------------------------------- sync-action helpers
     def _call_rate_limit(self) -> None:
-        """Single guarded GET /rate_limit; network errors are mapped to UserException by the client."""
-        response = self.client.get_json("/rate_limit")
-        if response.status_code == 401:
-            raise UserException("Invalid or expired token (HTTP 401).")
-        if response.status_code >= 400:
-            raise UserException(f"GitHub connection check failed (HTTP {response.status_code}).")
+        """Single guarded GET /rate_limit; the client classifies status (401/404/rate-limit/network)."""
+        self.client.get_response("/rate_limit")
 
     def _fetch_json_array(self, path: str, params: dict[str, str] | None = None) -> list[dict[str, Any]]:
-        """Guarded GET for the dropdown loaders: network error → UserException, 401 → token message."""
-        response, records = self.client.get_json_array(path, params)
-        if response.status_code == 401:
-            raise UserException("Invalid or expired token (HTTP 401).")
-        if response.status_code >= 400:
-            raise UserException(f"GitHub request to {path} failed (HTTP {response.status_code}).")
-        return records
+        """Guarded GET for the dropdown loaders.
+
+        Status routing (401 token / 404 not-found / rate-limit / network) is handled inside the
+        client by the SAME classifier the run path uses, so a rate-limited dropdown no longer reads
+        as a token problem — it surfaces the shared rate-limit message.
+        """
+        return self.client.get_json_array(path, params)
 
 
 if __name__ == "__main__":

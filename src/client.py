@@ -132,35 +132,37 @@ class GitHubClient:
             url = self._next_link(response)
 
     # --------------------------------------------------------- single-request GET (sync actions)
-    def get_json(self, path: str, params: dict[str, str] | None = None) -> Any:
-        """One guarded GET for sync actions: same auth/headers/timeout, network errors guarded.
+    def get_response(self, path: str, params: dict[str, str] | None = None) -> requests.Response:
+        """One guarded GET for sync actions: same auth/headers/timeout, fully classified.
 
         Unlike :meth:`fetch` this performs no pagination or retry — it backs the sync actions
         (testConnection / the dropdown loaders), which need a single call with the SAME network
-        guard as the run path. A connection reset / DNS / timeout / SSL error becomes a clean
-        :class:`UserException` (exit 1) instead of escaping uncaught (which the ``__main__`` guard
-        would map to exit 2 — "internal error" in the config UI). The 401 / other-4xx mapping is
-        left to the caller, since sync actions return endpoint-specific messages.
+        guard AND the SAME status classification as the run path. A connection reset / DNS /
+        timeout / SSL error becomes a clean :class:`UserException` (exit 1) instead of escaping
+        uncaught (which the ``__main__`` guard would map to exit 2 — "internal error" in the
+        config UI). Status routing (401 → token, 404 → not-found, 403/429 rate-limit → wait-later)
+        is delegated to the SAME :meth:`_classify_response` the run path uses, so the two entry
+        points share identical messaging. Sync actions don't retry, so a rate-limit raises a clean
+        UserException here rather than the internal ``_RetryableError``.
         """
         url = f"{self.base_url}{path}"
         try:
             response = self.session.get(url, params=params, timeout=DEFAULT_TIMEOUT)
         except requests.RequestException as exc:
             raise UserException(f"Could not reach GitHub at {path} ({exc}). Check connectivity and try again.") from exc
+        self._classify_response(response, retryable=False)
         return response
 
-    def get_json_array(self, path: str, params: dict[str, str] | None = None) -> tuple[Any, list[dict[str, Any]]]:
-        """Guarded GET returning ``(response, records)`` where records is ``[]`` for non-array bodies.
+    def get_json_array(self, path: str, params: dict[str, str] | None = None) -> list[dict[str, Any]]:
+        """Guarded GET returning the parsed record list (``[]`` for a non-array body).
 
-        Wraps :meth:`get_json` (so the network guard applies) and parses the body safely; the raw
-        response is returned alongside so the caller can branch on the status code (401 → token,
-        other 4xx/5xx → generic) before reading the list.
+        Wraps :meth:`get_response` (so the network guard AND status classification apply), then
+        parses the body safely. A 401/404/rate-limit has already been turned into a clean
+        :class:`UserException` by :meth:`_classify_response`, so reaching the parse means a 2xx.
         """
-        response = self.get_json(path, params)
-        if response.status_code >= 400:
-            return response, []
+        response = self.get_response(path, params)
         body = self._parse_json(response)
-        return response, body if isinstance(body, list) else []
+        return body if isinstance(body, list) else []
 
     @staticmethod
     def _unwrap(endpoint: Endpoint, payload: Any) -> list[dict[str, Any]]:
@@ -222,10 +224,25 @@ class GitHubClient:
                 scale_with_attempt=True,
             ) from exc
 
+        # Single source of truth for status routing, shared with the sync-action path.
+        self._classify_response(response, retryable=True)
+        return response
+
+    def _classify_response(self, response: requests.Response, *, retryable: bool) -> None:
+        """Route an HTTP response by status — the ONE place both entry points classify.
+
+        Shared by :meth:`_attempt` (run path) and :meth:`get_response` (sync-action path) so the
+        401 / 404 / rate-limit messaging never drifts between them. A 2xx/3xx returns (the caller
+        keeps the response). Terminal failures (401, 404, non-rate-limit 4xx) always raise a clean
+        :class:`UserException`. Transient failures (403/429 rate-limit, 5xx) depend on ``retryable``:
+        the run path (``retryable=True``) raises the internal :class:`_RetryableError` so tenacity
+        waits-and-retries; the sync-action path (``retryable=False``) — which never retries —
+        raises a clean :class:`UserException` instead.
+        """
         status = response.status_code
 
         if status < 400:
-            return response
+            return
 
         if status == 401:
             raise UserException(
@@ -235,26 +252,30 @@ class GitHubClient:
 
         if status == 404:
             raise UserException(
-                f"GitHub resource not found (HTTP 404): {url}. Check the organization/repository "
+                f"GitHub resource not found (HTTP 404): {response.url}. Check the organization/repository "
                 "name and that the token has access to it."
             )
 
         if status in (403, 429) and self._is_rate_limited(response):
-            raise _RetryableError(
-                self._rate_limit_wait_seconds(response),
-                "GitHub rate limit not recovered within the retry budget; reduce scope or re-run later.",
-            )
+            if retryable:
+                raise _RetryableError(
+                    self._rate_limit_wait_seconds(response),
+                    "GitHub rate limit not recovered within the retry budget; reduce scope or re-run later.",
+                )
+            raise UserException("GitHub rate limit hit, try again shortly.")
 
         if status >= 500:
-            raise _RetryableError(
-                BACKOFF_BASE_SECONDS,
-                f"GitHub returned HTTP {status} repeatedly (after {self.max_retries} retries).",
-                scale_with_attempt=True,
-            )
+            if retryable:
+                raise _RetryableError(
+                    BACKOFF_BASE_SECONDS,
+                    f"GitHub returned HTTP {status} repeatedly (after {self.max_retries} retries).",
+                    scale_with_attempt=True,
+                )
+            raise UserException(f"GitHub is unavailable (HTTP {status}); try again shortly.")
 
         # Any other 4xx (e.g. 403 that is NOT a rate limit — insufficient scope / SSO) is terminal.
         raise UserException(
-            f"GitHub request to {url} failed with HTTP {status}: {self._error_message(response)}. "
+            f"GitHub request to {response.url} failed with HTTP {status}: {self._error_message(response)}. "
             "Check the token scopes/SSO authorization and the target's access."
         )
 

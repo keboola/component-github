@@ -31,6 +31,9 @@
       "format": "test-connection",
       "propertyOrder": 25,
       "options": {
+        "dependencies": {
+          "auth_type": ["pat"]
+        },
         "async": {
           "label": "Test Connection",
           "action": "testConnection"

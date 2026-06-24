@@ -1,14 +1,17 @@
+# Sync note: tracks cookiecutter-python-component — update when template changes
+# Do not change: KBC_DATADIR=./data, service structure.
+version: "2"
 services:
   # for development purposes
   dev:
     build: .
     volumes:
-        - ./:/code
-        - ./data:/data
+      - ./:/code
+      - ./data:/data
     environment:
       - KBC_DATADIR=./data
   test:
-    # Use to run flake8 and unittests checks
+    # Runs ruff lint + format check + pytest via uv (see scripts/build_n_test.sh)
     build: .
     volumes:
       - ./:/code
@@ -16,4 +19,5 @@ services:
     environment:
       - KBC_DATADIR=./data
     command:
-      - python -m pytest tests/ --tb=short -q
+      - /bin/sh
+      - /code/scripts/build_n_test.sh

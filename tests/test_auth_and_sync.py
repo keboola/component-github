@@ -164,7 +164,7 @@ def test_list_teams_requires_org(tmp_path):
 def test_test_connection_network_error_raises_userexception(tmp_path):
     """A connection error during testConnection must be a clean UserException, never escape to exit 2.
 
-    The sync action routes through GitHubClient.get_json, whose try/except requests.RequestException
+    The sync action routes through GitHubClient.get_response, whose try/except requests.RequestException
     converts the failure to UserException. The handler raises it directly (here we call the private
     _call_rate_limit to assert on the exception type, before the @sync_action wrapper maps it).
     """

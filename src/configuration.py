@@ -7,6 +7,7 @@ field here — ``ComponentBase`` consumes the platform ``debug`` parameter and s
 root logger to DEBUG on its own, so a model field would be redundant (see spec §6.4).
 """
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Any, Self
 
@@ -84,6 +85,20 @@ class Configuration(BaseModel):
         # complete. A non-empty endpoint must be a known registry key (run() also re-checks).
         if self.endpoint and self.endpoint not in ENDPOINTS:
             raise UserException(f"Unknown endpoint '{self.endpoint}'. Choose one of: {', '.join(sorted(ENDPOINTS))}.")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_initial_since(self) -> Self:
+        # `initial_since` is unvalidated free-text from the UI and is fed verbatim downstream:
+        # the stop-paging watermark parses it (component._stop_paging_predicate) and it is also
+        # injected into the server-side `since`/`created` query params. Reject a malformed value
+        # here so a typo ("yesterday", "2024-13-01") is a clean exit 1, not an uncaught ValueError
+        # (exit 2) at fetch time. Empty stays empty (full history on the first run).
+        if self.initial_since:
+            try:
+                datetime.fromisoformat(self.initial_since.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise UserException("initial_since must be an ISO-8601 timestamp, e.g. 2024-01-31T00:00:00Z") from exc
         return self
 
     def __init__(self, **data: Any):
