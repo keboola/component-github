@@ -84,9 +84,11 @@ The `endpoint` (Data Source) field is unchanged. Empty is now **valid** for the 
 
 ### 3.3 `initial_since` copy
 
-Retitle to **"Fetch Since"**; `description`: "Lower bound for the first run." `tooltip`: accepts ISO-8601
-(`2024-01-01T00:00:00Z`) **or** a relative phrase (`5 days ago`, `yesterday`, `last monday`); empty =
-full history on the first run.
+Retitle to **"Fetch Since"**; `description`: "Only fetch records changed at/after this point." `tooltip`:
+accepts ISO-8601 (`2024-01-01T00:00:00Z`) **or** a relative phrase (`5 days ago`, `yesterday`,
+`last monday`). Behaviour depends on `load_type` (see §4.2): in **Full Load** it is applied on **every**
+run (so `10 days ago` is a rolling 10-day window); in **Incremental** it is the **first-run** starting
+point, after which the watermark takes over. Empty = full history.
 
 ## 4. Fan-out semantics (`run()`)
 
@@ -129,6 +131,29 @@ if incremental: persist per-target watermarks for the succeeded targets
 - Token-auth and rate-limit errors still **abort** the row (they are not per-target conditions).
 - A single inaccessible target (deleted repo, private team) is logged and skipped so an `empty = all`
   run is not derailed by one bad target.
+
+### 4.2 `since` / time-window semantics
+
+The effective per-target `since` lower bound is resolved per run from `load_type` + `Fetch Since`
+(parsed via §8, relative phrases recomputed each run):
+
+| `load_type` | `Fetch Since` | Effective `since` each run | State |
+|---|---|---|---|
+| Full Load | set | `parsed(Fetch Since)` — **applied every run** (rolling window; table is full-replaced) | none written |
+| Full Load | empty | none (full history) | none written |
+| Incremental | set | first run: `parsed(Fetch Since)`; later runs: per-target watermark | per-target watermark |
+| Incremental | empty | per-target watermark, else none | per-target watermark |
+
+This is the one behavioural change to the existing `_since()` path: today `since` is computed **only**
+when incremental (`component.py:94`), so Full Load ignores `Fetch Since`. The new rule computes `since`
+in both modes — from the watermark only in Incremental, and from `Fetch Since` in both — giving the
+"last N days, replaced each run" use case (Full Load + relative `Fetch Since`) for free. Only
+incremental-capable endpoints (those with `incremental_param` or `incremental_sort`) honour `since`; for
+others there is no time dimension and the field is hidden.
+
+Because `repository_pull_reviews` is now effectively incremental-capable (its PR scan sorts `updated`
+desc with a stop-paging watermark, §7.1), it **joins the `load_type` / `Fetch Since` dependency set** so
+a rolling/incremental window can bound the PR scan.
 
 ## 5. Incremental state (per-target watermark)
 
@@ -223,6 +248,9 @@ both relative phrases and absolute formats, so it replaces the bespoke `datetime
 - **`repository_pull_reviews` nested fan-out** (§7.1): `pull_number` empty over 1 repo with 2 PRs →
   reviews for both PRs in one table, tagged by `pull_number`; incremental PR-scan stops at the watermark.
 - **State**: per-target read/write; legacy `last_run` migration seeds all targets.
+- **`since` semantics (§4.2)**: Full Load + relative `Fetch Since` applies the window every run and
+  writes no state; Incremental uses `Fetch Since` only as the first-run floor; Full Load + empty fetches
+  all history.
 - **VCR**: re-record one incremental fan-out endpoint (e.g. `repository_commits` over 2 repos) to lock
   per-target `since` behaviour.
 
