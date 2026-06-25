@@ -11,10 +11,27 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Self
 
+import dateparser
 from keboola.component.exceptions import UserException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, computed_field, model_validator
 
 from endpoints import ENDPOINTS
+
+# dateparser settings: resolve relative phrases ("5 days ago") against UTC and always return a
+# timezone-aware datetime so the rendered ISO instant carries an explicit offset.
+_DATEPARSER_SETTINGS = {"RETURN_AS_TIMEZONE_AWARE": True, "TIMEZONE": "UTC"}
+
+
+def _parse_since(value: str) -> datetime | None:
+    """Parse an ISO-8601 or relative ('5 days ago') string to a tz-aware datetime, else None.
+
+    dateparser handles both absolute ISO instants and relative phrases, so it is the single
+    parser for the user-facing ``Fetch Since`` field. Returns ``None`` for an empty or
+    unparseable value (the caller decides whether that is an error or "no lower bound").
+    """
+    if not value:
+        return None
+    return dateparser.parse(value, settings=_DATEPARSER_SETTINGS)
 
 
 class AuthType(StrEnum):
@@ -93,17 +110,24 @@ class Configuration(BaseModel):
 
     @model_validator(mode="after")
     def _validate_initial_since(self) -> Self:
-        # `initial_since` is unvalidated free-text from the UI and is fed verbatim downstream:
-        # the stop-paging watermark parses it (component._stop_paging_predicate) and it is also
-        # injected into the server-side `since`/`created` query params. Reject a malformed value
-        # here so a typo ("yesterday", "2024-13-01") is a clean exit 1, not an uncaught ValueError
-        # (exit 2) at fetch time. Empty stays empty (full history on the first run).
-        if self.initial_since:
-            try:
-                datetime.fromisoformat(self.initial_since.replace("Z", "+00:00"))
-            except ValueError as exc:
-                raise UserException("initial_since must be an ISO-8601 timestamp, e.g. 2024-01-31T00:00:00Z") from exc
+        # `Fetch Since` is free-text from the UI and is fed downstream as the incremental lower
+        # bound (server-side `since`/`created` params + the stop-paging watermark). It accepts ISO
+        # instants AND relative phrases ("5 days ago"); reject anything else here so a real typo is
+        # a clean exit 1, not an uncaught error (exit 2) at fetch time. Empty = full history.
+        if self.initial_since and _parse_since(self.initial_since) is None:
+            raise UserException(
+                "Fetch Since must be ISO-8601 or a relative phrase (e.g. '2024-01-31T00:00:00Z' or '5 days ago')."
+            )
         return self
+
+    def parsed_initial_since(self) -> str | None:
+        """The absolute ISO-8601 instant for ``initial_since`` (relative phrases resolved), or None.
+
+        Relative phrases are resolved at call time so a Full Load row with ``Fetch Since`` set to a
+        relative value ("10 days ago") becomes a rolling window — each run recomputes the instant.
+        """
+        parsed = _parse_since(self.initial_since)
+        return parsed.isoformat() if parsed else None
 
     def __init__(self, **data: Any):
         try:

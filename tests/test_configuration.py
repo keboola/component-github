@@ -30,25 +30,29 @@ def test_invalid_state_enum_raises_with_validation_prefix():
         Configuration(auth_type="pat", issue_state="bogus", **{"#github_token": "ghp_x"})
 
 
-def test_malformed_initial_since_raises():
-    """A non-ISO initial_since is rejected before it can reach the fetch path (TODO 1)."""
-    with pytest.raises(UserException, match="initial_since must be an ISO-8601 timestamp"):
-        Configuration(auth_type="pat", initial_since="yesterday", **{"#github_token": "ghp_x"})
-
-
-def test_malformed_initial_since_out_of_range_month_raises():
-    """An ISO-shaped but invalid value (month 13) is still rejected (datetime.fromisoformat raises)."""
-    with pytest.raises(UserException, match="initial_since must be an ISO-8601 timestamp"):
-        Configuration(auth_type="pat", initial_since="2024-13-01", **{"#github_token": "ghp_x"})
+def test_unparseable_initial_since_raises():
+    """A value that is neither ISO nor a relative phrase is rejected (clean exit 1)."""
+    with pytest.raises(UserException, match="ISO-8601 or a relative phrase"):
+        Configuration(auth_type="pat", initial_since="qwerty", **{"#github_token": "ghp_x"})
 
 
 def test_valid_initial_since_with_trailing_z_accepted():
-    """A well-formed ISO instant with a trailing Z normalizes and passes (no exception)."""
+    """A well-formed ISO instant with a trailing Z is accepted and resolves to that instant."""
     cfg = Configuration(auth_type="pat", initial_since="2024-01-31T00:00:00Z", **{"#github_token": "ghp_x"})
     assert cfg.initial_since == "2024-01-31T00:00:00Z"
+    assert cfg.parsed_initial_since().startswith("2024-01-31T00:00:00")
 
 
 def test_empty_initial_since_is_allowed():
-    """Empty initial_since stays empty (full history on the first run) — not validated."""
+    """Empty initial_since stays empty (full history on the first run) — parses to None."""
     cfg = Configuration(auth_type="pat", initial_since="", **{"#github_token": "ghp_x"})
     assert cfg.initial_since == ""
+    assert cfg.parsed_initial_since() is None
+
+
+def test_relative_initial_since_parses_to_instant():
+    """A relative phrase ('5 days ago') is valid and resolves to an absolute tz-aware instant."""
+    cfg = Configuration(auth_type="pat", initial_since="5 days ago", **{"#github_token": "ghp_x"})
+    assert cfg.initial_since == "5 days ago"  # raw value preserved for the form
+    parsed = cfg.parsed_initial_since()
+    assert parsed is not None and ("+00:00" in parsed or parsed.endswith("Z"))
