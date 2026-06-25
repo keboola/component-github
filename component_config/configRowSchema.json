@@ -81,11 +81,16 @@
       "propertyOrder": 10
     },
     "organization": {
-      "type": "string",
-      "title": "Organization",
+      "type": "array",
+      "title": "Organizations",
       "format": "select",
-      "default": "",
-      "enum": [],
+      "uniqueItems": true,
+      "default": [],
+      "items": {
+        "type": "string",
+        "enum": []
+      },
+      "description": "Leave empty to include all organizations you belong to.",
       "propertyOrder": 20,
       "options": {
         "async": {
@@ -93,6 +98,7 @@
           "action": "listOrganizations",
           "autoload": true
         },
+        "tooltip": "Pick one or more organizations. Empty = all organizations your token can access. For repository data sources this also scopes which repositories are offered below.",
         "dependencies": {
           "endpoint": [
             "organizations",
@@ -101,17 +107,45 @@
             "team_members",
             "organization_repositories",
             "organization_events",
-            "organization_outside_collaborators"
+            "organization_outside_collaborators",
+            "repository",
+            "repository_branches",
+            "repository_tags",
+            "repository_commits",
+            "repository_contributors",
+            "repository_collaborators",
+            "repository_languages",
+            "repository_topics",
+            "repository_releases",
+            "repository_issues",
+            "repository_issue_comments",
+            "repository_pulls",
+            "repository_pull_reviews",
+            "repository_pull_review_comments",
+            "repository_labels",
+            "repository_milestones",
+            "repository_stargazers",
+            "repository_subscribers",
+            "repository_forks",
+            "repository_workflows",
+            "repository_workflow_runs",
+            "repository_deployments",
+            "repository_webhooks"
           ]
         }
       }
     },
     "team_slug": {
-      "type": "string",
-      "title": "Team",
+      "type": "array",
+      "title": "Teams",
       "format": "select",
-      "default": "",
-      "enum": [],
+      "uniqueItems": true,
+      "default": [],
+      "items": {
+        "type": "string",
+        "enum": []
+      },
+      "description": "Leave empty to include all teams in the selected organization(s).",
       "propertyOrder": 30,
       "options": {
         "async": {
@@ -119,19 +153,23 @@
           "action": "listTeams",
           "autoload": ["organization"]
         },
+        "tooltip": "Pick one or more teams. Empty = all teams in the selected organization(s).",
         "dependencies": {
-          "endpoint": [
-            "team_members"
-          ]
+          "endpoint": ["team_members"]
         }
       }
     },
     "repository": {
-      "type": "string",
-      "title": "Repository",
+      "type": "array",
+      "title": "Repositories",
       "format": "select",
-      "default": "",
-      "enum": [],
+      "uniqueItems": true,
+      "default": [],
+      "items": {
+        "type": "string",
+        "enum": []
+      },
+      "description": "Leave empty to include all repositories in the selected organization(s).",
       "propertyOrder": 40,
       "options": {
         "async": {
@@ -139,6 +177,7 @@
           "action": "listRepositories",
           "autoload": ["organization", "endpoint"]
         },
+        "tooltip": "Pick one or more repositories. Empty = all repositories in the selected organization(s), or all of your repositories if no organization is set.",
         "dependencies": {
           "endpoint": [
             "repository",
@@ -170,19 +209,19 @@
     },
     "pull_number": {
       "type": "integer",
-      "title": "Pull Request Number",
+      "title": "Pull Request Number (optional)",
+      "description": "Set to fetch reviews for one specific pull request; leave empty for all pull requests.",
       "propertyOrder": 50,
       "options": {
+        "tooltip": "Targeted mode: with a number set, select exactly one repository and only that pull request's reviews are fetched. Leave empty to fetch reviews for every pull request in the selected repositories.",
         "dependencies": {
-          "endpoint": [
-            "repository_pull_reviews"
-          ]
+          "endpoint": ["repository_pull_reviews"]
         }
       }
     },
     "load_type": {
       "type": "string",
-      "title": "Load Type",
+      "title": "Load Type (optional)",
       "enum": ["full_load", "incremental_load"],
       "options": {
         "enum_titles": ["Full Load", "Incremental Load"],
@@ -194,6 +233,7 @@
             "repository_issues",
             "repository_issue_comments",
             "repository_pulls",
+            "repository_pull_reviews",
             "repository_pull_review_comments",
             "repository_workflow_runs"
           ]
@@ -204,12 +244,12 @@
     },
     "initial_since": {
       "type": "string",
-      "title": "Initial Since (ISO-8601)",
+      "title": "Fetch Since (optional)",
       "default": "",
-      "description": "Optional lower bound for the first run (when no state exists).",
+      "description": "Only fetch records changed at or after this point.",
       "propertyOrder": 70,
       "options": {
-        "tooltip": "Applies only on the first run, when no state exists yet. Example: <code>2024-01-01T00:00:00Z</code>. Leave empty to fetch the full history on the first run.",
+        "tooltip": "Accepts an ISO-8601 instant (<code>2024-01-01T00:00:00Z</code>) or a relative phrase (<code>5 days ago</code>, <code>yesterday</code>). In Full Load it is applied on every run (a rolling window — the table is replaced each run). In Incremental Load it is the starting point for the first run only, after which the stored watermark takes over. Empty = full history.",
         "dependencies": {
           "endpoint": [
             "user_repos",
@@ -218,6 +258,7 @@
             "repository_issues",
             "repository_issue_comments",
             "repository_pulls",
+            "repository_pull_reviews",
             "repository_pull_review_comments",
             "repository_workflow_runs"
           ]
@@ -226,14 +267,12 @@
     },
     "issue_state": {
       "type": "string",
-      "title": "Issue State",
+      "title": "Issue State (optional)",
       "enum": ["all", "open", "closed"],
       "options": {
         "enum_titles": ["All", "Open", "Closed"],
         "dependencies": {
-          "endpoint": [
-            "repository_issues"
-          ]
+          "endpoint": ["repository_issues"]
         }
       },
       "default": "all",
@@ -241,14 +280,12 @@
     },
     "pull_state": {
       "type": "string",
-      "title": "Pull Request State",
+      "title": "Pull Request State (optional)",
       "enum": ["all", "open", "closed"],
       "options": {
         "enum_titles": ["All", "Open", "Closed"],
         "dependencies": {
-          "endpoint": [
-            "repository_pulls"
-          ]
+          "endpoint": ["repository_pulls"]
         }
       },
       "default": "all",
@@ -256,14 +293,12 @@
     },
     "milestone_state": {
       "type": "string",
-      "title": "Milestone State",
+      "title": "Milestone State (optional)",
       "enum": ["all", "open", "closed"],
       "options": {
         "enum_titles": ["All", "Open", "Closed"],
         "dependencies": {
-          "endpoint": [
-            "repository_milestones"
-          ]
+          "endpoint": ["repository_milestones"]
         }
       },
       "default": "all",

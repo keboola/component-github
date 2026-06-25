@@ -40,7 +40,8 @@ def test_valid_initial_since_with_trailing_z_accepted():
     """A well-formed ISO instant with a trailing Z is accepted and resolves to that instant."""
     cfg = Configuration(auth_type="pat", initial_since="2024-01-31T00:00:00Z", **{"#github_token": "ghp_x"})
     assert cfg.initial_since == "2024-01-31T00:00:00Z"
-    assert cfg.parsed_initial_since().startswith("2024-01-31T00:00:00")
+    parsed = cfg.parsed_initial_since()
+    assert parsed is not None and parsed.startswith("2024-01-31T00:00:00")
 
 
 def test_empty_initial_since_is_allowed():

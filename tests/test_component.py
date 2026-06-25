@@ -45,14 +45,17 @@ def test_resolve_targets_selected_repos(tmp_path):
 
 def test_resolve_targets_empty_repo_fans_over_org_repos(tmp_path):
     comp = _component(tmp_path, {**PAT, "endpoint": "repository_commits", "organization": ["acme"], "repository": []})
-    comp.client.get_json_array.return_value = [{"full_name": "acme/one"}, {"full_name": "acme/two"}]
+    comp.client.get_json_array.return_value = [  # ty: ignore[unresolved-attribute]
+        {"full_name": "acme/one"},
+        {"full_name": "acme/two"},
+    ]
     targets = comp._resolve_targets(ENDPOINTS["repository_commits"])
     assert sorted(t["repository"] for t in targets) == ["acme/one", "acme/two"]
 
 
 def test_resolve_targets_org_empty_fans_all_orgs(tmp_path):
     comp = _component(tmp_path, {**PAT, "endpoint": "organization_members", "organization": []})
-    comp.client.get_json_array.return_value = [{"login": "org1"}, {"login": "org2"}]
+    comp.client.get_json_array.return_value = [{"login": "org1"}, {"login": "org2"}]  # ty: ignore[unresolved-attribute]
     targets = comp._resolve_targets(ENDPOINTS["organization_members"])
     assert sorted(t["org"] for t in targets) == ["org1", "org2"]
 

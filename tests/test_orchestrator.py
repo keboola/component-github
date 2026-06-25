@@ -55,7 +55,7 @@ def _run_component(tmp_path, parameters, fetch_returns, state=None, config_data_
 
 def _fetch_params(comp) -> dict:
     """The query params passed to the stubbed client.fetch (3rd positional arg of run())."""
-    args, kwargs = comp.client.fetch.call_args  # ty: ignore[unresolved-attribute]
+    args, kwargs = comp.client.fetch.call_args
     # component.run() calls client.fetch(endpoint, path, params, stop_paging=...)
     return args[2] if len(args) > 2 else kwargs.get("params", {})
 
@@ -246,8 +246,8 @@ def test_empty_repository_means_all_no_longer_raises(tmp_path):
 
         with mock.patch("component.GitHubClient"):
             comp = Component()
-        comp.client.get_json_array.return_value = []  # no repos in scope → zero targets
-        comp.client.fetch.return_value = iter([])
+        comp.client.get_json_array.return_value = []  # ty: ignore[unresolved-attribute]  # no repos in scope
+        comp.client.fetch.return_value = iter([])  # ty: ignore[unresolved-attribute]
         comp.run()  # must not raise
     rows, _manifest = _read_table(data_dir, "repository_issues")
     assert rows == []
