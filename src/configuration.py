@@ -72,10 +72,13 @@ class Configuration(BaseModel):
     github_token: str = Field(alias="#github_token", default="")
 
     # --- row: endpoint selection + target + filters ---
+    # Targets are multi-select: empty list = "all in scope" (resolved in component._resolve_targets).
+    # A legacy single-string value (old rows / scaffolded rows) is coerced to a one-element list by
+    # _coerce_target_lists below, so existing configs keep working.
     endpoint: str = ""
-    organization: str = ""
-    team_slug: str = ""
-    repository: str = ""
+    organization: list[str] = Field(default_factory=list)
+    team_slug: list[str] = Field(default_factory=list)
+    repository: list[str] = Field(default_factory=list)
     pull_number: int | None = None
     load_type: LoadType = LoadType.incremental_load
     initial_since: str = ""
@@ -88,6 +91,24 @@ class Configuration(BaseModel):
     def incremental_load(self) -> bool:
         """True when this row should upsert incrementally (vs full overwrite)."""
         return self.load_type == LoadType.incremental_load
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_target_lists(cls, data: Any) -> Any:
+        """Back-compat: coerce a legacy single-string target to a one-element list; blank → [].
+
+        The multi-select schema sends arrays, but existing rows (and the scaffolded rows in the
+        test project) still carry a single string. Runs before type validation so both shapes load.
+        """
+        if not isinstance(data, dict):
+            return data
+        for key in ("organization", "team_slug", "repository"):
+            value = data.get(key)
+            if value is None or value == "":
+                data[key] = []
+            elif isinstance(value, str):
+                data[key] = [value]
+        return data
 
     @model_validator(mode="after")
     def _validate_auth(self) -> Self:
@@ -106,6 +127,18 @@ class Configuration(BaseModel):
         # complete. A non-empty endpoint must be a known registry key (run() also re-checks).
         if self.endpoint and self.endpoint not in ENDPOINTS:
             raise UserException(f"Unknown endpoint '{self.endpoint}'. Choose one of: {', '.join(sorted(ENDPOINTS))}.")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_pull_reviews(self) -> Self:
+        # `repository_pull_reviews` needs a specific pull_number; "all repos × one PR number" is
+        # meaningless. With a number set it targets exactly one repo (targeted mode); an empty
+        # number triggers the nested fan-out (component._fetch_pull_reviews_nested).
+        if self.endpoint == "repository_pull_reviews" and self.pull_number is not None and len(self.repository) > 1:
+            raise UserException(
+                "Pull Request Reviews with a Pull Request Number set targets exactly one repository; "
+                "select a single repository, or clear the number to fetch reviews for all pull requests."
+            )
         return self
 
     @model_validator(mode="after")

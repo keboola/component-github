@@ -78,11 +78,12 @@ def test_functional_case(case: str) -> None:
         test.compare_source_and_expected()
         if case in _INCREMENTAL_CASES:
             test._collect_result_state()
-            new_last_run = test.result_state.get("last_run")
-            assert new_last_run, f"{case}: incremental run must write a non-empty last_run watermark"
+            # State is now a per-target watermark map: {"targets": {<repo>: <iso>}}.
+            watermarks = [v for v in (test.result_state.get("targets") or {}).values() if v]
+            assert watermarks, f"{case}: incremental run must write a non-empty per-target watermark"
             seeded = _seeded_state(case_dir) or {}
-            assert new_last_run != seeded.get("last_run"), (
-                f"{case}: last_run must advance to the run start, not echo the seeded watermark"
+            assert all(w != seeded.get("last_run") for w in watermarks), (
+                f"{case}: watermark must advance to the run start, not echo the seeded watermark"
             )
     finally:
         test.tearDown()

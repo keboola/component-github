@@ -407,6 +407,8 @@ _register(
         target=Target.OWNER_REPO,
         primary_key=["id"],
         envelope=Envelope.OBJECT,
+        # No synthetic owner/repo: the repo object already carries `full_name` + `owner_login`, so a
+        # multi-repo fan-out is self-identifying (see the context-column audit exemption in tests).
         schema=_repo_object_cols(),
     )
 )
@@ -661,7 +663,9 @@ _register(
         target=Target.OWNER_REPO_PULL,
         primary_key=["id"],
         envelope=Envelope.ARRAY,
-        context_columns=("owner", "repo"),
+        # pull_number is a context column so the nested fan-out (empty pull_number = all PRs) tags
+        # each review row with the PR it came from; in targeted mode it carries the configured number.
+        context_columns=("owner", "repo", "pull_number"),
         schema=[
             _int("id"),
             _str("node_id"),

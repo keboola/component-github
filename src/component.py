@@ -24,7 +24,8 @@ from configuration import AuthType, Configuration
 from credentials import resolve_token
 from endpoints import ENDPOINTS, Endpoint, Target, expand_records, flatten_record, output_columns
 
-STATE_LAST_RUN = "last_run"
+STATE_LAST_RUN = "last_run"  # legacy single-watermark key (read-only, for migration)
+STATE_TARGETS = "targets"  # per-target watermark map: {target_key: iso_instant}
 
 
 def _redact_authorization(request: Any) -> Any:
@@ -87,18 +88,47 @@ class Component(ComponentBase):
 
     # ----------------------------------------------------------------------------- run
     def run(self) -> None:
+        """Fan out over every resolved target into one table, advancing per-target watermarks.
+
+        A row's target fields are multi-select with empty = "all in scope" (§4). ``_resolve_targets``
+        turns them into a list of concrete context dicts; each is fetched and merged into one output
+        table. A single inaccessible target (404 / not-found) is skipped with a warning so an
+        "all" run is not derailed by one bad repo; token/rate-limit errors still abort.
+        """
         endpoint = self._endpoint()
-        path, context = self._build_path(endpoint)
-        run_started_at = datetime.now(UTC)
         incremental = self._incremental(endpoint)
-        since = self._since() if incremental else None
-        params, stop_paging = self._fetch_params(endpoint, since)
+        run_started_at = datetime.now(UTC).isoformat()
+        state = self.get_state_file() or {}
 
-        rows = self._collect_rows(endpoint, path, context, params, stop_paging)
-        self._write_table(endpoint, rows, incremental)
+        targets = self._resolve_targets(endpoint)
+        logging.info("Fanning out over %d target(s) for '%s'.", len(targets), endpoint.name)
 
+        all_rows: list[dict[str, Any]] = []
+        succeeded: list[str] = []
+        for context in targets:
+            key = self._target_key(endpoint, context)
+            since = self._since(key, state) if incremental else self._full_load_since()
+            try:
+                all_rows.extend(self._fetch_target(endpoint, context, since))
+            except UserException as exc:
+                if self._fans_out(endpoint) and self._is_single_target_access_error(exc):
+                    logging.warning("Skipping target '%s': %s", key or "(default)", exc)
+                    continue
+                raise
+            succeeded.append(key)
+
+        self._write_table(endpoint, all_rows, incremental)
         if incremental:
-            self.write_state_file({STATE_LAST_RUN: run_started_at.isoformat()})
+            self._advance_state(state, succeeded, run_started_at)
+
+    def _fetch_target(self, endpoint: Endpoint, context: dict[str, str], since: str | None) -> list[dict[str, Any]]:
+        """Fetch one concrete target's rows (the nested PR scan for empty-pull_number reviews)."""
+        if endpoint.name == "repository_pull_reviews" and self.cfg.pull_number is None:
+            return self._fetch_pull_reviews_nested(context, since)
+        enriched = self._with_pull_number(context)
+        path = self._build_path(endpoint, enriched)
+        params, stop_paging = self._fetch_params(endpoint, since)
+        return self._collect_rows(endpoint, path, enriched, params, stop_paging)
 
     # ------------------------------------------------------------------- run() helpers
     def _incremental(self, endpoint: Endpoint) -> bool:
@@ -137,59 +167,131 @@ class Component(ComponentBase):
             )
         return endpoint
 
-    def _build_path(self, endpoint: Endpoint) -> tuple[str, dict[str, str]]:
-        """Substitute the row's target params into the path; return (path, context columns)."""
-        owner, repo = self._split_repository()
+    def _build_path(self, endpoint: Endpoint, context: dict[str, str]) -> str:
+        """Substitute a resolved target's context into the endpoint path template."""
         values = {
-            "org": self.cfg.organization,
-            "team_slug": self.cfg.team_slug,
-            "owner": owner,
-            "repo": repo,
-            "pull_number": self.cfg.pull_number,
+            "org": context.get("org", ""),
+            "team_slug": context.get("team_slug", ""),
+            "owner": context.get("owner", ""),
+            "repo": context.get("repo", ""),
+            "pull_number": context.get("pull_number", ""),
         }
-        self._require_targets(endpoint, values)
         try:
-            path = endpoint.path_template.format(**values)
+            return endpoint.path_template.format(**values)
         except KeyError as exc:
             raise UserException(f"Missing path parameter {exc} for endpoint '{endpoint.name}'.") from exc
 
-        context = {
-            "org": self.cfg.organization,
-            "owner": owner,
-            "repo": repo,
-            "repository": f"{owner}/{repo}" if owner and repo else "",
-            "team_slug": self.cfg.team_slug,
-        }
-        return path, context
+    # ------------------------------------------------------------------- target resolution
+    def _resolve_targets(self, endpoint: Endpoint) -> list[dict[str, str]]:
+        """One context dict per concrete target the row expands to (empty selection = all in scope)."""
+        if endpoint.target == Target.NONE:
+            return [{}]
+        if endpoint.target == Target.ORG:
+            return [{"org": org} for org in (self.cfg.organization or self._list_org_logins())]
+        if endpoint.target in (Target.OWNER_REPO, Target.OWNER_REPO_PULL):
+            repos = self.cfg.repository or self._all_repos_in_scope()
+            return [self._repo_context(name) for name in repos]
+        if endpoint.target == Target.ORG_TEAM:
+            return self._resolve_team_targets()
+        return [{}]
 
-    def _split_repository(self) -> tuple[str, str]:
-        """The async ``repository`` select carries ``owner/repo``; split it."""
-        if "/" in self.cfg.repository:
-            owner, repo = self.cfg.repository.split("/", 1)
-            return owner, repo
-        return "", ""
+    def _all_repos_in_scope(self) -> list[str]:
+        """All repos for the selected org(s), or all of the user's repos when no org is selected."""
+        names: list[str] = []
+        for org in self.cfg.organization or [""]:
+            names.extend(self._list_repo_fullnames(org))
+        return names
+
+    def _resolve_team_targets(self) -> list[dict[str, str]]:
+        """team values are qualified ``org/team_slug``; empty = all teams in the selected org(s).
+
+        Back-compat: a bare slug (legacy rows, where ``organization`` carried the org separately) is
+        paired with each selected org.
+        """
+        if self.cfg.team_slug:
+            targets = []
+            for value in self.cfg.team_slug:
+                if "/" in value:
+                    org, _, slug = value.partition("/")
+                    targets.append({"org": org, "team_slug": slug})
+                else:
+                    targets.extend({"org": org, "team_slug": value} for org in self.cfg.organization or [""])
+            return targets
+        targets = []
+        for org in self.cfg.organization or self._list_org_logins():
+            targets.extend({"org": org, "team_slug": slug} for slug in self._list_team_slugs(org))
+        return targets
 
     @staticmethod
-    def _require_targets(endpoint: Endpoint, values: dict[str, Any]) -> None:
-        """Belt-and-braces validation behind the schema's conditional fields."""
-        required: dict[Target, list[str]] = {
-            Target.NONE: [],
-            Target.ORG: ["org"],
-            Target.ORG_TEAM: ["org", "team_slug"],
-            Target.OWNER_REPO: ["owner", "repo"],
-            Target.OWNER_REPO_PULL: ["owner", "repo", "pull_number"],
-        }
-        missing = [field for field in required[endpoint.target] if not values.get(field)]
-        if missing:
-            raise UserException(
-                f"Endpoint '{endpoint.name}' requires {', '.join(missing)} "
-                "— set the organization / repository / team / pull request number on the row."
-            )
+    def _repo_context(full_name: str) -> dict[str, str]:
+        owner, _, repo = full_name.partition("/")
+        return {"owner": owner, "repo": repo, "repository": full_name}
 
-    def _since(self) -> str | None:
-        """Lower bound for incremental: stored watermark, else the row's ``initial_since``."""
-        state = self.get_state_file() or {}
-        return state.get(STATE_LAST_RUN) or self.cfg.initial_since or None
+    @staticmethod
+    def _target_key(endpoint: Endpoint, context: dict[str, str]) -> str:
+        """Stable per-target state key (the watermark map key)."""
+        if endpoint.target in (Target.OWNER_REPO, Target.OWNER_REPO_PULL):
+            return context.get("repository", "")
+        if endpoint.target == Target.ORG_TEAM:
+            return f"{context.get('org', '')}/{context.get('team_slug', '')}"
+        return context.get("org", "")
+
+    def _fans_out(self, endpoint: Endpoint) -> bool:
+        """True when the row targets more than one concrete resource (so one bad target is skippable)."""
+        if endpoint.target == Target.NONE:
+            return False
+        return not (len(self.cfg.repository) == 1 and len(self.cfg.organization) <= 1)
+
+    @staticmethod
+    def _is_single_target_access_error(exc: UserException) -> bool:
+        """A 404/not-found on one target — skippable; token/rate-limit errors are not."""
+        message = str(exc).lower()
+        return "http 404" in message or "not found" in message
+
+    def _with_pull_number(self, context: dict[str, str]) -> dict[str, str]:
+        """For pull_reviews targeted mode, inject the configured single pull_number into the path/context."""
+        if self.cfg.pull_number is not None:
+            return {**context, "pull_number": str(self.cfg.pull_number)}
+        return context
+
+    def _fetch_pull_reviews_nested(self, context: dict[str, str], since: str | None) -> list[dict[str, Any]]:
+        """repo -> list its PRs (sorted updated desc, bounded by ``since``) -> each PR's reviews."""
+        reviews_ep = ENDPOINTS["repository_pull_reviews"]
+        pulls_ep = ENDPOINTS["repository_pulls"]
+        owner, repo = context["owner"], context["repo"]
+        pulls_path = f"/repos/{owner}/{repo}/pulls"
+        pulls_params, pulls_stop = self._fetch_params(pulls_ep, since)
+        rows: list[dict[str, Any]] = []
+        for pr in self.client.fetch(pulls_ep, pulls_path, pulls_params, stop_paging=pulls_stop):
+            number = pr.get("number")
+            if number is None:
+                continue
+            pr_context = {**context, "pull_number": str(number)}
+            reviews_path = f"/repos/{owner}/{repo}/pulls/{number}/reviews"
+            for payload in self.client.fetch(reviews_ep, reviews_path):
+                rows.append(flatten_record(reviews_ep, payload, pr_context))
+        return rows
+
+    def _since(self, key: str, state: dict[str, Any]) -> str | None:
+        """Incremental lower bound for one target: per-target watermark, then legacy ``last_run``,
+        then the row's parsed ``Fetch Since`` (relative phrases resolved). ``None`` = full history.
+
+        The legacy fallback migrates rows whose state predates per-target watermarks: their single
+        ``last_run`` seeds every target on the first per-target run, so no history is re-fetched.
+        """
+        targets = state.get(STATE_TARGETS) or {}
+        return targets.get(key) or state.get(STATE_LAST_RUN) or self.cfg.parsed_initial_since()
+
+    def _full_load_since(self) -> str | None:
+        """Full Load honours ``Fetch Since`` on EVERY run (rolling window); no watermark, no state."""
+        return self.cfg.parsed_initial_since()
+
+    def _advance_state(self, state: dict[str, Any], succeeded: list[str], run_started_at: str) -> None:
+        """Set each successfully-fetched target's watermark to this run's start; leave others as-is."""
+        targets = dict(state.get(STATE_TARGETS) or {})
+        for key in succeeded:
+            targets[key] = run_started_at
+        self.write_state_file({STATE_TARGETS: targets})
 
     def _fetch_params(
         self, endpoint: Endpoint, since: str | None
@@ -288,23 +390,40 @@ class Component(ComponentBase):
 
     @sync_action("listOrganizations")
     def list_organizations(self) -> list[SelectElement]:
-        orgs = self._fetch_json_array("/user/orgs")
-        return [SelectElement(value=login, label=login) for o in orgs if (login := o.get("login"))]
+        return [SelectElement(value=org, label=org) for org in self._list_org_logins()]
 
     @sync_action("listRepositories")
     def list_repositories(self) -> list[SelectElement]:
-        path = f"/orgs/{self.cfg.organization}/repos" if self.cfg.organization else "/user/repos"
-        repos = self._fetch_json_array(path, params={"per_page": "100"})
-        return [SelectElement(value=name, label=name) for r in repos if (name := r.get("full_name"))]
+        # The first selected org scopes the picker (the UI reloads it as `organization` changes);
+        # no org selected → the authenticated user's repos.
+        org = self.cfg.organization[0] if self.cfg.organization else ""
+        return [SelectElement(value=name, label=name) for name in self._list_repo_fullnames(org)]
 
     @sync_action("listTeams")
     def list_teams(self) -> list[SelectElement]:
         if not self.cfg.organization:
             raise UserException("Select an organization before loading teams.")
-        teams = self._fetch_json_array(f"/orgs/{self.cfg.organization}/teams", params={"per_page": "100"})
+        org = self.cfg.organization[0]
+        teams = self._fetch_json_array(f"/orgs/{org}/teams", params={"per_page": "100"})
+        # Value is the qualified ``org/team_slug`` (self-contained across multiple selected orgs).
         return [
-            SelectElement(value=slug, label=team.get("name") or slug) for team in teams if (slug := team.get("slug"))
+            SelectElement(value=f"{org}/{slug}", label=f"{org} / {team.get('name') or slug}")
+            for team in teams
+            if (slug := team.get("slug"))
         ]
+
+    # --------------------------------------------- shared enumeration (sync actions + run fan-out)
+    def _list_org_logins(self) -> list[str]:
+        return [login for o in self._fetch_json_array("/user/orgs") if (login := o.get("login"))]
+
+    def _list_repo_fullnames(self, org: str) -> list[str]:
+        path = f"/orgs/{org}/repos" if org else "/user/repos"
+        repos = self._fetch_json_array(path, params={"per_page": "100"})
+        return [name for r in repos if (name := r.get("full_name"))]
+
+    def _list_team_slugs(self, org: str) -> list[str]:
+        teams = self._fetch_json_array(f"/orgs/{org}/teams", params={"per_page": "100"})
+        return [slug for t in teams if (slug := t.get("slug"))]
 
     # ------------------------------------------------------------- sync-action helpers
     def _call_rate_limit(self) -> None:

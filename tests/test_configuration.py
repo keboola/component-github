@@ -56,3 +56,54 @@ def test_relative_initial_since_parses_to_instant():
     assert cfg.initial_since == "5 days ago"  # raw value preserved for the form
     parsed = cfg.parsed_initial_since()
     assert parsed is not None and ("+00:00" in parsed or parsed.endswith("Z"))
+
+
+# --------------------------------------------------- multi-select targets (string back-compat)
+
+
+def test_string_target_coerces_to_list():
+    """A legacy single-string target becomes a one-element list."""
+    cfg = Configuration(
+        auth_type="pat", endpoint="repository", repository="octocat/Hello", **{"#github_token": "ghp_x"}
+    )
+    assert cfg.repository == ["octocat/Hello"]
+
+
+def test_empty_string_target_coerces_to_empty_list():
+    """An empty-string target becomes [] (means 'all in scope')."""
+    cfg = Configuration(auth_type="pat", endpoint="repository_issues", repository="", **{"#github_token": "ghp_x"})
+    assert cfg.repository == []
+
+
+def test_absent_target_defaults_to_empty_list():
+    """An absent target field defaults to []."""
+    cfg = Configuration(auth_type="pat", endpoint="user", **{"#github_token": "ghp_x"})
+    assert cfg.organization == [] and cfg.repository == [] and cfg.team_slug == []
+
+
+def test_list_target_passthrough():
+    """An already-list target is preserved verbatim."""
+    cfg = Configuration(
+        auth_type="pat", endpoint="repository_issues", repository=["a/x", "a/y"], **{"#github_token": "ghp_x"}
+    )
+    assert cfg.repository == ["a/x", "a/y"]
+
+
+def test_pull_reviews_with_pull_number_rejects_multiple_repos():
+    """pull_number set + >1 repo is ambiguous and rejected."""
+    with pytest.raises(UserException, match="exactly one repository"):
+        Configuration(
+            auth_type="pat",
+            endpoint="repository_pull_reviews",
+            repository=["a/x", "a/y"],
+            pull_number=5,
+            **{"#github_token": "ghp_x"},
+        )
+
+
+def test_pull_reviews_without_pull_number_allows_many_repos():
+    """Empty pull_number permits many repos (nested fan-out over PRs)."""
+    cfg = Configuration(
+        auth_type="pat", endpoint="repository_pull_reviews", repository=["a/x", "a/y"], **{"#github_token": "ghp_x"}
+    )
+    assert cfg.repository == ["a/x", "a/y"]

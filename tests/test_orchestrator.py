@@ -13,9 +13,6 @@ import os
 from pathlib import Path
 from unittest import mock
 
-import pytest
-from keboola.component.exceptions import UserException
-
 
 def _write_datadir(tmp_path: Path, parameters: dict, state: dict | None = None) -> Path:
     data_dir = tmp_path / "data"
@@ -179,7 +176,7 @@ def test_org_envelope_members(tmp_path):
     assert "org" in header
 
 
-def test_incremental_writes_last_run_and_since(tmp_path):
+def test_incremental_writes_per_target_watermark(tmp_path):
     params = {**PAT, "endpoint": "repository_issues", "repository": "octocat/Hello", "load_type": "incremental_load"}
     state = {"last_run": "2024-01-01T00:00:00+00:00"}
     payload = [{"id": 5, "number": 5, "title": "x", "user": {"login": "a", "id": 1}}]
@@ -187,7 +184,7 @@ def test_incremental_writes_last_run_and_since(tmp_path):
     rows, manifest = _read_table(data_dir, "repository_issues")
     assert manifest["incremental"] is True
     new_state = json.loads((data_dir / "out" / "state.json").read_text())
-    assert "last_run" in new_state and new_state["last_run"] != ""
+    assert new_state["targets"]["octocat/Hello"] != ""
 
 
 def test_non_incremental_endpoint_forces_full_load(tmp_path):
@@ -234,16 +231,26 @@ def test_full_load_does_not_write_state(tmp_path):
         assert json.loads(state_file.read_text()) == {}
 
 
-def test_missing_target_raises_userexception(tmp_path):
-    params = {**PAT, "endpoint": "repository_issues", "repository": "", "load_type": "full_load"}
+def test_empty_repository_means_all_no_longer_raises(tmp_path):
+    """Empty repository now means 'all in scope' — it enumerates rather than erroring."""
+    params = {
+        **PAT,
+        "endpoint": "repository_issues",
+        "repository": [],
+        "organization": ["acme"],
+        "load_type": "full_load",
+    }
     data_dir = _write_datadir(tmp_path, params)
     with mock.patch.dict(os.environ, {"KBC_DATADIR": str(data_dir)}):
         from component import Component
 
         with mock.patch("component.GitHubClient"):
             comp = Component()
-        with pytest.raises(UserException, match="requires"):
-            comp.run()
+        comp.client.get_json_array.return_value = []  # no repos in scope → zero targets
+        comp.client.fetch.return_value = iter([])
+        comp.run()  # must not raise
+    rows, _manifest = _read_table(data_dir, "repository_issues")
+    assert rows == []
 
 
 # --------------------------------------------------- incremental watermark param formatting (TODO 2)
@@ -279,3 +286,92 @@ def test_commits_incremental_since_passes_iso_instant_verbatim(tmp_path):
     payload = [{"sha": "abc"}]
     _data_dir, comp = _run_component(tmp_path, params, payload, state=state)
     assert _fetch_params(comp)["since"] == "2024-03-15T08:30:00+00:00"
+
+
+# --------------------------------------------------- fan-out over many targets (§4)
+
+
+def test_repo_subresource_endpoints_emit_context_columns():
+    """Every repo SUB-resource endpoint must emit owner+repo so fanned multi-repo output is joinable.
+
+    The bare ``repository`` endpoint is exempt: it returns the repo object itself, which already
+    carries ``full_name`` + ``owner_login`` and is therefore self-identifying across repos.
+    """
+    from endpoints import ENDPOINTS, Target, output_columns
+
+    self_identifying = {"repository"}
+    for ep in ENDPOINTS.values():
+        if ep.target in (Target.OWNER_REPO, Target.OWNER_REPO_PULL) and ep.name not in self_identifying:
+            cols = output_columns(ep)
+            assert "owner" in cols and "repo" in cols, ep.name
+
+
+def _run_multi(tmp_path, params, fetch_side_effect, state=None):
+    """Run a Component whose client.fetch returns a different iterator per call (one per target)."""
+    data_dir = _write_datadir(tmp_path, params, state)
+    env = {"KBC_DATADIR": str(data_dir), "KBC_DATA_TYPE_SUPPORT": "authoritative"}
+    with mock.patch.dict(os.environ, env):
+        from component import Component
+
+        with mock.patch("component.GitHubClient"):
+            comp = Component()
+        comp.client.fetch.side_effect = fetch_side_effect  # ty: ignore[unresolved-attribute]
+        comp.run()
+    return data_dir, comp
+
+
+def test_fanout_two_repos_into_one_table(tmp_path):
+    params = {**PAT, "endpoint": "repository_commits", "repository": ["a/x", "a/y"], "load_type": "full_load"}
+    side_effect = [iter([{"sha": "s1", "commit": {"message": "m"}}]), iter([{"sha": "s2", "commit": {"message": "m"}}])]
+    data_dir, _comp = _run_multi(tmp_path, params, side_effect)
+    rows, manifest = _read_table(data_dir, "repository_commits")
+    header = [c["name"] for c in manifest["schema"]]
+    repo_idx = header.index("repository")
+    assert sorted(r[repo_idx] for r in rows) == ["a/x", "a/y"]
+
+
+def test_full_load_applies_fetch_since_every_run(tmp_path):
+    params = {
+        **PAT,
+        "endpoint": "repository_commits",
+        "repository": ["a/x"],
+        "load_type": "full_load",
+        "initial_since": "2024-01-01T00:00:00Z",
+    }
+    _data_dir, comp = _run_component(tmp_path, params, [{"sha": "s1"}])
+    assert _fetch_params(comp)["since"] == "2024-01-01T00:00:00+00:00"
+
+
+def test_per_target_watermark_written(tmp_path):
+    params = {**PAT, "endpoint": "repository_commits", "repository": ["a/x"], "load_type": "incremental_load"}
+    data_dir, _comp = _run_component(tmp_path, params, [{"sha": "s1"}])
+    state = json.loads((data_dir / "out" / "state.json").read_text())
+    assert "a/x" in state["targets"]
+
+
+def test_legacy_last_run_state_seeds_target_since(tmp_path):
+    params = {**PAT, "endpoint": "repository_commits", "repository": ["a/x"], "load_type": "incremental_load"}
+    _data_dir, comp = _run_component(tmp_path, params, [{"sha": "s1"}], state={"last_run": "2024-05-01T00:00:00+00:00"})
+    assert _fetch_params(comp)["since"] == "2024-05-01T00:00:00+00:00"
+
+
+def test_pull_reviews_nested_fanout_over_prs(tmp_path):
+    params = {**PAT, "endpoint": "repository_pull_reviews", "repository": ["a/x"], "load_type": "full_load"}
+    # 1st fetch = the PR listing (2 PRs); next 2 = each PR's reviews
+    side_effect = [
+        iter(
+            [
+                {"number": 11, "updated_at": "2024-01-02T00:00:00Z"},
+                {"number": 12, "updated_at": "2024-01-01T00:00:00Z"},
+            ]
+        ),
+        iter([{"id": 101, "state": "APPROVED", "user": {"login": "u", "id": 1}}]),
+        iter([{"id": 102, "state": "COMMENTED", "user": {"login": "v", "id": 2}}]),
+    ]
+    data_dir, _comp = _run_multi(tmp_path, params, side_effect)
+    rows, manifest = _read_table(data_dir, "repository_pull_reviews")
+    header = [c["name"] for c in manifest["schema"]]
+    assert len(rows) == 2
+    assert "pull_number" in header
+    pn_idx = header.index("pull_number")
+    assert sorted(r[pn_idx] for r in rows) == ["11", "12"]

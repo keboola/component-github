@@ -165,7 +165,8 @@ def test_list_teams_shape(tmp_path):
     config = {"parameters": {"#github_token": "ghp_x", "endpoint": "", "organization": "octo-org"}}
     comp = _component(_datadir(tmp_path, config), patch_client=False)
     result = comp.list_teams()
-    assert [(e.value, e.label) for e in result] == [("core-team", "Core Team")]
+    # team values are qualified org/team_slug; labels are humanized "org / Team Name"
+    assert [(e.value, e.label) for e in result] == [("octo-org/core-team", "octo-org / Core Team")]
 
 
 def test_list_teams_requires_org(tmp_path):

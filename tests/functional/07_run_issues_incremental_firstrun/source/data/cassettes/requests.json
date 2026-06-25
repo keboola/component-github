@@ -16,7 +16,7 @@
           ]
         },
         "method": "GET",
-        "uri": "https://api.github.com/repos/octocat/Spoon-Knife/issues?per_page=100&state=all&since=2024-01-01T00%3A00%3A00Z"
+        "uri": "https://api.github.com/repos/octocat/Spoon-Knife/issues?per_page=100&state=all&since=2024-01-01T00%3A00%3A00%2B00%3A00"
       },
       "response": {
         "body": {
