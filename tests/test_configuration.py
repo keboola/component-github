@@ -199,3 +199,37 @@ def test_graphql_ai_config_template_rejects_filename_with_quote():
 def test_graphql_pr_reviews_template_requires_org_and_repo():
     with pytest.raises(UserException, match="Repository"):
         Configuration(auth_type="pat", **GQL, query_template="org_pull_request_reviews", gql_org="acme", gql_repo="")
+
+
+def test_gql_filenames_absent_falls_back_to_default():
+    """An absent gql_filenames keeps the field default (the coercion must not force [])."""
+    cfg = Configuration(auth_type="pat", **GQL, query_template="org_ai_config_files", gql_org="acme")
+    assert cfg.gql_filenames == ["AGENTS.md", "CLAUDE.md"]
+
+
+def test_gql_filenames_none_falls_back_to_default():
+    """An explicit None gql_filenames falls back to the default."""
+    cfg = Configuration(
+        auth_type="pat", **GQL, query_template="org_ai_config_files", gql_org="acme", gql_filenames=None
+    )
+    assert cfg.gql_filenames == ["AGENTS.md", "CLAUDE.md"]
+
+
+def test_gql_filenames_comma_string_splits():
+    """A non-empty comma string still splits to a list."""
+    cfg = Configuration(
+        auth_type="pat",
+        **GQL,
+        query_template="org_ai_config_files",
+        gql_org="acme",
+        gql_filenames="AGENTS.md, CLAUDE.md",
+    )
+    assert cfg.gql_filenames == ["AGENTS.md", "CLAUDE.md"]
+
+
+def test_gql_filenames_blank_string_falls_back_to_default():
+    """A blank/whitespace string coerces to the default, not []."""
+    cfg = Configuration(
+        auth_type="pat", **GQL, query_template="org_ai_config_files", gql_org="acme", gql_filenames="  "
+    )
+    assert cfg.gql_filenames == ["AGENTS.md", "CLAUDE.md"]
