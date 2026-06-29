@@ -124,3 +124,70 @@ def test_pr_reviews_build_variables_bare_name_unchanged():
     """gql_repo already a bare name (no slash) → passed through unchanged."""
     tpl = TEMPLATES["org_pull_request_reviews"]
     assert tpl.build_variables({"org": "acme", "repo": "web"}) == {"org": "acme", "repo": "web"}
+
+
+# --------------------------------------------------- new org-wide templates
+
+
+def test_org_pull_requests_template_query_content():
+    tpl = TEMPLATES["org_pull_requests"]
+    query = tpl.build_query({"org": "acme"})
+    assert "reviewThreads" in query
+    assert "reviews" in query
+    assert "$cursor" in query
+    assert "pageInfo" in query
+
+
+def test_org_pull_requests_template_metadata():
+    tpl = TEMPLATES["org_pull_requests"]
+    assert tpl.rows_path == "search.nodes"
+    assert tpl.output_table == "pull_requests_graphql"
+    assert tpl.primary_key == ["id"]
+
+
+def test_org_pull_requests_build_variables_preserves_since_placeholder():
+    """build_variables must embed the literal {{since}} so the component substitutes it later."""
+    tpl = TEMPLATES["org_pull_requests"]
+    variables = tpl.build_variables({"org": "acme"})
+    assert variables["q"] == "org:acme is:pr updated:>={{since}} sort:updated-desc"
+
+
+def test_org_repository_languages_template_query_content():
+    tpl = TEMPLATES["org_repository_languages"]
+    query = tpl.build_query({"org": "acme"})
+    assert "languages(" in query
+    assert "$cursor" in query
+    assert "pageInfo" in query
+
+
+def test_org_repository_languages_template_metadata():
+    tpl = TEMPLATES["org_repository_languages"]
+    assert tpl.rows_path == "organization.repositories.nodes"
+    assert tpl.output_table == "repository_languages_graphql"
+    assert tpl.primary_key == ["nameWithOwner"]
+
+
+def test_org_repository_languages_build_variables():
+    tpl = TEMPLATES["org_repository_languages"]
+    assert tpl.build_variables({"org": "acme"}) == {"org": "acme"}
+
+
+def test_org_commits_template_query_content():
+    tpl = TEMPLATES["org_commits"]
+    query = tpl.build_query({"org": "acme"})
+    assert "history(" in query
+    assert "{{since}}" in query
+    assert "$cursor" in query
+    assert "pageInfo" in query
+
+
+def test_org_commits_template_metadata():
+    tpl = TEMPLATES["org_commits"]
+    assert tpl.rows_path == "organization.repositories.nodes"
+    assert tpl.output_table == "repository_commits_graphql"
+    assert tpl.primary_key == ["nameWithOwner"]
+
+
+def test_org_commits_build_variables():
+    tpl = TEMPLATES["org_commits"]
+    assert tpl.build_variables({"org": "acme"}) == {"org": "acme"}

@@ -245,3 +245,37 @@ def test_gql_filenames_blank_string_falls_back_to_default():
         auth_type="pat", **GQL, query_template="org_ai_config_files", gql_org="acme", gql_filenames="  "
     )
     assert cfg.gql_filenames == ["AGENTS.md", "CLAUDE.md"]
+
+
+# --------------------------------------------------- new org-wide templates
+
+
+def test_graphql_org_pull_requests_requires_org():
+    with pytest.raises(UserException, match="Organization"):
+        Configuration(auth_type="pat", **GQL, query_template="org_pull_requests", gql_org="")
+
+
+def test_graphql_org_pull_requests_with_org_constructs():
+    cfg = Configuration(auth_type="pat", **GQL, query_template="org_pull_requests", gql_org="acme")
+    assert cfg.query_template == "org_pull_requests"
+    assert cfg.gql_org == "acme"
+
+
+def test_graphql_org_repository_languages_requires_org():
+    with pytest.raises(UserException, match="Organization"):
+        Configuration(auth_type="pat", **GQL, query_template="org_repository_languages", gql_org="")
+
+
+def test_graphql_org_repository_languages_with_org_constructs():
+    cfg = Configuration(auth_type="pat", **GQL, query_template="org_repository_languages", gql_org="acme")
+    assert cfg.query_template == "org_repository_languages"
+
+
+def test_graphql_org_commits_requires_org():
+    with pytest.raises(UserException, match="Organization"):
+        Configuration(auth_type="pat", **GQL, query_template="org_commits", gql_org="")
+
+
+def test_graphql_org_commits_with_org_constructs():
+    cfg = Configuration(auth_type="pat", **GQL, query_template="org_commits", gql_org="acme")
+    assert cfg.query_template == "org_commits"

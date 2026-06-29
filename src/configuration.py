@@ -58,6 +58,9 @@ class QueryTemplate(StrEnum):
     custom = "custom"
     org_ai_config_files = "org_ai_config_files"
     org_pull_request_reviews = "org_pull_request_reviews"
+    org_pull_requests = "org_pull_requests"
+    org_repository_languages = "org_repository_languages"
+    org_commits = "org_commits"
 
 
 _SAFE_TABLE_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -240,6 +243,13 @@ class Configuration(BaseModel):
                 raise UserException("Organization is required for the 'Open PRs' template.")
             if not self.gql_repo:
                 raise UserException("Repository is required for the 'Open PRs' template.")
+        elif self.query_template in (
+            QueryTemplate.org_pull_requests,
+            QueryTemplate.org_repository_languages,
+            QueryTemplate.org_commits,
+        ):
+            if not self.gql_org:
+                raise UserException(f"Organization is required for the '{self.query_template.value}' template.")
         if self.output_table and not _SAFE_TABLE_NAME.match(self.output_table):
             raise UserException("Output table name may contain only letters, digits, underscores and hyphens.")
         return self

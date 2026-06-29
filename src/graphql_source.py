@@ -202,6 +202,77 @@ def _pr_reviews_variables(params: dict[str, Any]) -> dict[str, Any]:
     return {"org": params["org"], "repo": repo}
 
 
+def _org_pull_requests_query(params: dict[str, Any]) -> str:
+    return """query($q: String!, $cursor: String) {
+  search(query: $q, type: ISSUE, first: 50, after: $cursor) {
+    issueCount
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      ... on PullRequest {
+        id
+        number
+        title
+        state
+        url
+        isDraft
+        createdAt
+        updatedAt
+        closedAt
+        mergedAt
+        author { login }
+        repository { nameWithOwner }
+        baseRefName
+        headRefName
+        reviewDecision
+        reviews(first: 50) { totalCount nodes { author { login } state submittedAt } }
+        reviewThreads(first: 30) { nodes { isResolved path comments(first: 20) { nodes { author { login } body createdAt } } } }
+      }
+    }
+  }
+}"""
+
+
+def _org_languages_query(params: dict[str, Any]) -> str:
+    return """query($org: String!, $cursor: String) {
+  organization(login: $org) {
+    repositories(first: 100, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        nameWithOwner
+        languages(first: 100, orderBy: {field: SIZE, direction: DESC}) {
+          totalSize
+          edges { size node { name } }
+        }
+      }
+    }
+  }
+}"""
+
+
+def _org_commits_query(params: dict[str, Any]) -> str:
+    return """query($org: String!, $cursor: String) {
+  organization(login: $org) {
+    repositories(first: 50, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        nameWithOwner
+        defaultBranchRef {
+          name
+          target {
+            ... on Commit {
+              history(first: 100, since: "{{since}}") {
+                totalCount
+                nodes { oid messageHeadline committedDate author { name email user { login } } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}"""
+
+
 TEMPLATES: dict[str, GraphQLTemplate] = {
     "org_ai_config_files": GraphQLTemplate(
         build_query=_ai_config_query,
@@ -216,5 +287,26 @@ TEMPLATES: dict[str, GraphQLTemplate] = {
         rows_path="repository.pullRequests.nodes",
         output_table="repo_open_pull_requests",
         primary_key=["number"],
+    ),
+    "org_pull_requests": GraphQLTemplate(
+        build_query=_org_pull_requests_query,
+        build_variables=lambda p: {"q": f"org:{p['org']} is:pr updated:>={{{{since}}}} sort:updated-desc"},
+        rows_path="search.nodes",
+        output_table="pull_requests_graphql",
+        primary_key=["id"],
+    ),
+    "org_repository_languages": GraphQLTemplate(
+        build_query=_org_languages_query,
+        build_variables=lambda p: {"org": p["org"]},
+        rows_path="organization.repositories.nodes",
+        output_table="repository_languages_graphql",
+        primary_key=["nameWithOwner"],
+    ),
+    "org_commits": GraphQLTemplate(
+        build_query=_org_commits_query,
+        build_variables=lambda p: {"org": p["org"]},
+        rows_path="organization.repositories.nodes",
+        output_table="repository_commits_graphql",
+        primary_key=["nameWithOwner"],
     ),
 }

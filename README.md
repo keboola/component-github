@@ -101,11 +101,18 @@ not covered by the preset endpoints. Select **GraphQL Query** as the Data Source
 **Query Template** or write a **Custom** query. Output is one flattened all-STRING table; nested
 objects become `parent_child` columns and nested lists become JSON cells.
 
-- **Query Templates** — two built-in templates are included:
+- **Query Templates** — built-in queries you can pick instead of writing GraphQL:
   - **Org repos: AI config files** — scans every repository in an organization for `AGENTS.md` and
     `CLAUDE.md` files, reporting whether they exist and their content. One row per repository.
   - **Repository: Open PRs with review decision** — fetches open pull requests of a repository,
     including the GraphQL-only `reviewDecision` field.
+  - **Org: Pull Requests + reviews + comments** — all PRs in an organization (within the **Since**
+    window) with reviews and review-thread comments — a budget-friendly replacement for the
+    `repository_pulls` / `_pull_reviews` / `_pull_review_comments` REST data sources.
+  - **Org: Repository languages** — language breakdown per repo in an organization (replaces
+    `repository_languages`).
+  - **Org: Recent commits** — recent commit history per repo in an organization within the **Since**
+    window (replaces `repository_commits`; up to 100 commits per repo per page).
 - **Custom** — paste a GraphQL query (and optional JSON variables), name an output table, and optionally
   set **Row path** (dotted path to the data list, e.g. `organization.repositories.nodes`) if
   auto-detection fails. For pagination, select `pageInfo { hasNextPage endCursor }` on the connection

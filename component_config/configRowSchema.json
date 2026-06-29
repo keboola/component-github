@@ -335,11 +335,11 @@
     "query_template": {
       "type": "string",
       "title": "Query Template",
-      "enum": ["custom", "org_ai_config_files", "org_pull_request_reviews"],
+      "enum": ["custom", "org_ai_config_files", "org_pull_request_reviews", "org_pull_requests", "org_repository_languages", "org_commits"],
       "default": "custom",
       "propertyOrder": 90,
       "options": {
-        "enum_titles": ["Custom (write your own)", "Org repos: AI config files (AGENTS.md, CLAUDE.md)", "Repository: Open PRs with review decision"],
+        "enum_titles": ["Custom (write your own)", "Org repos: AI config files (AGENTS.md, CLAUDE.md)", "Repository: Open PRs with review decision", "Org: Pull Requests + reviews + comments", "Org: Repository languages", "Org: Recent commits"],
         "tooltip": "Pick a built-in query, or Custom to write your own GraphQL.",
         "dependencies": { "endpoint": ["graphql_query"] }
       }
@@ -408,7 +408,7 @@
           "autoload": true
         },
         "tooltip": "Organization login the template runs against.",
-        "dependencies": { "endpoint": ["graphql_query"], "query_template": ["org_ai_config_files", "org_pull_request_reviews"] }
+        "dependencies": { "endpoint": ["graphql_query"], "query_template": ["org_ai_config_files", "org_pull_request_reviews", "org_pull_requests", "org_repository_languages", "org_commits"] }
       }
     },
     "gql_repo": {

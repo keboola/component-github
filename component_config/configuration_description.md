@@ -49,6 +49,13 @@ become a JSON-encoded cell.
     **File name** (default `AGENTS.md`, `CLAUDE.md`) exists and its content. One row per repository.
   - **Repository: Open PRs with review decision** — open pull requests of one **Organization** /
     **Repository**, including the GraphQL-only `reviewDecision`.
+  - **Org: Pull Requests + reviews + comments** — every pull request in an **Organization** (within the
+    **Since** window) with its reviews and review-thread comments, in a few paginated queries instead of
+    per-PR REST calls. Replaces the `repository_pulls` / `_pull_reviews` / `_pull_review_comments` REST sources.
+  - **Org: Repository languages** — language breakdown for every repository in an **Organization** (one
+    paginated query). Replaces the `repository_languages` REST source.
+  - **Org: Recent commits** — recent commit history per repository in an **Organization** (within the
+    **Since** window). Replaces the `repository_commits` REST source. Note: up to 100 commits per repo per page.
 - **Custom** — paste a **GraphQL Query** and optional **GraphQL Variables** (a JSON object) and set an
   **Output table** name. To page through large results, select `pageInfo { hasNextPage endCursor }` on the
   connection and declare a `$cursor` variable used as `after: $cursor`.

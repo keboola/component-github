@@ -278,8 +278,14 @@ def test_row_schema_has_graphql_data_source():
     # gql_filenames must NOT be in the top-level required array (only endpoint should be)
     assert schema.get("required") == ["endpoint"]
 
+    # query_template: three new enum values present and enum_titles count matches
+    qt = schema["properties"]["query_template"]
+    for new_val in ("org_pull_requests", "org_repository_languages", "org_commits"):
+        assert new_val in qt["enum"], new_val
+    assert len(qt["enum"]) == len(qt["options"]["enum_titles"])
+
     # query_template gated on endpoint only (shows for all graphql_query rows)
-    qt_deps = schema["properties"]["query_template"]["options"]["dependencies"]
+    qt_deps = qt["options"]["dependencies"]
     assert qt_deps == {"endpoint": ["graphql_query"]}
 
     # Custom-only fields: gated on endpoint AND query_template=custom
@@ -291,7 +297,13 @@ def test_row_schema_has_graphql_data_source():
     # gql_org: gated on endpoint AND both template values (not custom)
     gql_org_deps = schema["properties"]["gql_org"]["options"]["dependencies"]
     assert "graphql_query" in gql_org_deps["endpoint"]
-    assert set(gql_org_deps["query_template"]) == {"org_ai_config_files", "org_pull_request_reviews"}
+    assert set(gql_org_deps["query_template"]) == {
+        "org_ai_config_files",
+        "org_pull_request_reviews",
+        "org_pull_requests",
+        "org_repository_languages",
+        "org_commits",
+    }
 
     # gql_repo: gated on endpoint AND org_pull_request_reviews only
     gql_repo_deps = schema["properties"]["gql_repo"]["options"]["dependencies"]

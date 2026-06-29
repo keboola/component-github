@@ -162,8 +162,8 @@ class Component(ComponentBase):
         # Substitute {{since}}/{{until}} with the resolved (dateparser) window dates so a GraphQL row can
         # roll its own window — e.g. `updated:>={{since}}` with Since = "60 days ago" (§ rolling window).
         since_dt, until_dt = self.cfg.parsed_since(), self.cfg.parsed_until()
-        since_s = since_dt.date().isoformat() if since_dt else None
-        until_s = until_dt.date().isoformat() if until_dt else None
+        since_s = since_dt.isoformat() if since_dt else None
+        until_s = until_dt.isoformat() if until_dt else None
         query = apply_date_placeholders(query, since_s, until_s)
         variables = {
             key: (apply_date_placeholders(val, since_s, until_s) if isinstance(val, str) else val)
