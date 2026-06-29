@@ -7,6 +7,8 @@ field here — ``ComponentBase`` consumes the platform ``debug`` parameter and s
 root logger to DEBUG on its own, so a model field would be redundant (see spec §6.4).
 """
 
+import json
+import re
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Self
@@ -15,7 +17,7 @@ import dateparser
 from keboola.component.exceptions import UserException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, computed_field, model_validator
 
-from endpoints import ENDPOINTS
+from endpoints import ENDPOINTS, GRAPHQL_ENDPOINT
 
 # dateparser settings: resolve relative phrases ("5 days ago") against UTC and always return a
 # timezone-aware datetime so the rendered ISO instant carries an explicit offset.
@@ -50,6 +52,15 @@ class State(StrEnum):
     all = "all"
     open = "open"
     closed = "closed"
+
+
+class QueryTemplate(StrEnum):
+    custom = "custom"
+    org_ai_config_files = "org_ai_config_files"
+    org_pull_request_reviews = "org_pull_request_reviews"
+
+
+_SAFE_TABLE_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class Configuration(BaseModel):
@@ -90,6 +101,17 @@ class Configuration(BaseModel):
     pull_state: State = State.all
     milestone_state: State = State.all
 
+    # --- GraphQL query data source (only meaningful when endpoint == GRAPHQL_ENDPOINT) ---
+    query_template: QueryTemplate = QueryTemplate.custom
+    gql_query: str = ""
+    gql_variables: dict[str, Any] = Field(default_factory=dict)
+    gql_row_path: str = ""
+    output_table: str = ""
+    primary_key: list[str] = Field(default_factory=list)
+    gql_org: str = ""
+    gql_repo: str = ""
+    gql_filenames: list[str] = Field(default_factory=lambda: ["AGENTS.md", "CLAUDE.md"])
+
     @computed_field
     @property
     def incremental_load(self) -> bool:
@@ -114,6 +136,33 @@ class Configuration(BaseModel):
                 data[key] = [value]
         return data
 
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_graphql_inputs(cls, data: Any) -> Any:
+        """Coerce GraphQL string inputs: variables JSON-string -> dict; comma lists -> list."""
+        if not isinstance(data, dict):
+            return data
+        raw_vars = data.get("gql_variables")
+        if isinstance(raw_vars, str):
+            text = raw_vars.strip()
+            if not text:
+                data["gql_variables"] = {}
+            else:
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    raise UserException(f"GraphQL Variables must be a JSON object: {exc}.") from exc
+                if not isinstance(parsed, dict):
+                    raise UserException('GraphQL Variables must be a JSON object (e.g. {"org": "acme"}).')
+                data["gql_variables"] = parsed
+        for key in ("primary_key", "gql_filenames"):
+            value = data.get(key)
+            if isinstance(value, str):
+                data[key] = [part.strip() for part in value.split(",") if part.strip()]
+            elif value is None:
+                data[key] = []
+        return data
+
     @model_validator(mode="after")
     def _validate_auth(self) -> Self:
         # OAuth tokens are validated at runtime by the presence of broker-injected
@@ -129,7 +178,7 @@ class Configuration(BaseModel):
     def _validate_endpoint(self) -> Self:
         # Empty endpoint is allowed: sync actions instantiate the model before the form is
         # complete. A non-empty endpoint must be a known registry key (run() also re-checks).
-        if self.endpoint and self.endpoint not in ENDPOINTS:
+        if self.endpoint and self.endpoint != GRAPHQL_ENDPOINT and self.endpoint not in ENDPOINTS:
             raise UserException(f"Unknown endpoint '{self.endpoint}'. Choose one of: {', '.join(sorted(ENDPOINTS))}.")
         return self
 
@@ -156,6 +205,32 @@ class Configuration(BaseModel):
                 raise UserException(
                     f"{label} must be ISO-8601 or a relative phrase (e.g. '2024-01-31T00:00:00Z' or '90 days ago')."
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_graphql(self) -> Self:
+        if self.endpoint != GRAPHQL_ENDPOINT:
+            return self
+        if self.query_template == QueryTemplate.custom:
+            if not self.gql_query.strip():
+                raise UserException("A GraphQL query is required in Custom mode.")
+            if not self.output_table:
+                raise UserException("An Output table name is required in Custom mode.")
+        elif self.query_template == QueryTemplate.org_ai_config_files:
+            if not self.gql_org:
+                raise UserException("Organization is required for the 'AI config files' template.")
+            if not self.gql_filenames:
+                raise UserException("At least one file name is required for the 'AI config files' template.")
+            for name in self.gql_filenames:
+                if '"' in name or "\n" in name:
+                    raise UserException(f"Invalid file name '{name}': must not contain a quote or newline.")
+        elif self.query_template == QueryTemplate.org_pull_request_reviews:
+            if not self.gql_org:
+                raise UserException("Organization is required for the 'Open PRs' template.")
+            if not self.gql_repo:
+                raise UserException("Repository is required for the 'Open PRs' template.")
+        if self.output_table and not _SAFE_TABLE_NAME.match(self.output_table):
+            raise UserException("Output table name may contain only letters, digits, underscores and hyphens.")
         return self
 
     def parsed_since(self) -> datetime | None:

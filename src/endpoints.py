@@ -189,6 +189,10 @@ def _repo_object_cols() -> list[ColumnDef]:
 
 ENDPOINTS: dict[str, Endpoint] = {}
 
+#: Reserved Data Source value for the GraphQL passthrough — NOT a typed REST registry entry.
+#: component.run() dispatches on it; configuration accepts it; it is intentionally absent from ENDPOINTS.
+GRAPHQL_ENDPOINT = "graphql_query"
+
 
 def _register(endpoint: Endpoint) -> None:
     ENDPOINTS[endpoint.name] = endpoint

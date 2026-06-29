@@ -113,3 +113,89 @@ def test_pull_reviews_without_pull_number_allows_many_repos():
         auth_type="pat", endpoint="repository_pull_reviews", repository=["a/x", "a/y"], **{"#github_token": "ghp_x"}
     )
     assert cfg.repository == ["a/x", "a/y"]
+
+
+# --------------------------------------------------- GraphQL query data source
+
+GQL = {"#github_token": "ghp_x", "endpoint": "graphql_query"}
+
+
+def test_graphql_endpoint_is_accepted():
+    """The reserved graphql_query endpoint is valid even though it is not in ENDPOINTS."""
+    cfg = Configuration(
+        auth_type="pat", **GQL, query_template="custom", gql_query="{ viewer { login } }", output_table="t"
+    )
+    assert cfg.endpoint == "graphql_query"
+
+
+def test_graphql_custom_requires_query_and_output_table():
+    with pytest.raises(UserException, match="GraphQL query"):
+        Configuration(auth_type="pat", **GQL, query_template="custom", gql_query="", output_table="t")
+    with pytest.raises(UserException, match="Output table"):
+        Configuration(
+            auth_type="pat", **GQL, query_template="custom", gql_query="{ viewer { login } }", output_table=""
+        )
+
+
+def test_graphql_variables_parsed_from_json_string():
+    cfg = Configuration(
+        auth_type="pat",
+        **GQL,
+        query_template="custom",
+        gql_query="q",
+        output_table="t",
+        gql_variables='{"org": "acme"}',
+    )
+    assert cfg.gql_variables == {"org": "acme"}
+
+
+def test_graphql_variables_blank_is_empty_dict():
+    cfg = Configuration(
+        auth_type="pat", **GQL, query_template="custom", gql_query="q", output_table="t", gql_variables=""
+    )
+    assert cfg.gql_variables == {}
+
+
+def test_graphql_variables_bad_json_raises():
+    with pytest.raises(UserException, match="GraphQL Variables"):
+        Configuration(
+            auth_type="pat", **GQL, query_template="custom", gql_query="q", output_table="t", gql_variables="{not json"
+        )
+
+
+def test_graphql_primary_key_string_coerces_to_list():
+    cfg = Configuration(
+        auth_type="pat",
+        **GQL,
+        query_template="custom",
+        gql_query="q",
+        output_table="t",
+        primary_key="nameWithOwner, number",
+    )
+    assert cfg.primary_key == ["nameWithOwner", "number"]
+
+
+def test_graphql_output_table_rejects_unsafe_name():
+    with pytest.raises(UserException, match="Output table"):
+        Configuration(auth_type="pat", **GQL, query_template="custom", gql_query="q", output_table="bad name!")
+
+
+def test_graphql_ai_config_template_requires_org():
+    with pytest.raises(UserException, match="Organization"):
+        Configuration(auth_type="pat", **GQL, query_template="org_ai_config_files", gql_org="")
+
+
+def test_graphql_ai_config_template_rejects_filename_with_quote():
+    with pytest.raises(UserException, match="file name"):
+        Configuration(
+            auth_type="pat",
+            **GQL,
+            query_template="org_ai_config_files",
+            gql_org="acme",
+            gql_filenames=["AGENTS.md", 'bad"name'],
+        )
+
+
+def test_graphql_pr_reviews_template_requires_org_and_repo():
+    with pytest.raises(UserException, match="Repository"):
+        Configuration(auth_type="pat", **GQL, query_template="org_pull_request_reviews", gql_org="acme", gql_repo="")
