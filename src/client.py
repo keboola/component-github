@@ -23,6 +23,7 @@ from keboola.component.exceptions import UserException
 from tenacity import RetryCallState, Retrying, retry_if_exception_type
 
 from endpoints import Endpoint, Envelope
+from graphql_source import connection_path, detect_rows_path, read_path
 
 BASE_URL = "https://api.github.com"
 API_VERSION = "2022-11-28"
@@ -192,6 +193,74 @@ class GitHubClient:
             url = self._next_link(response)
         return records
 
+    # ----------------------------------------------------------------------------- graphql
+    def graphql(
+        self, query: str, variables: dict[str, Any], rows_path: str | None = None
+    ) -> tuple[list[dict[str, Any]], str]:
+        """Run a GraphQL query, paginate the rows-path connection, return (raw row nodes, resolved rows_path).
+
+        Rows path is the caller's override or auto-detected from page 1 (graphql_source.detect_rows_path).
+        Pagination follows the GraphQL cursor convention: it advances only when the query declares a
+        `$cursor` variable AND the connection exposes `pageInfo {hasNextPage endCursor}`.
+        """
+        vars_state: dict[str, Any] = dict(variables or {})
+        supports_cursor = "$cursor" in query
+        all_rows: list[dict[str, Any]] = []
+        resolved = rows_path
+        while True:
+            data = self._graphql_post(query, vars_state)
+            if resolved is None:
+                resolved = detect_rows_path(data)
+            node_or_list = read_path(data, resolved)
+            if isinstance(node_or_list, list):
+                all_rows.extend(item for item in node_or_list if isinstance(item, dict))
+            elif isinstance(node_or_list, dict):
+                all_rows.append(node_or_list)
+            conn = connection_path(resolved)
+            page_info = read_path(data, f"{conn}.pageInfo") if conn else None
+            has_next = isinstance(page_info, dict) and page_info.get("hasNextPage") and page_info.get("endCursor")
+            if not (supports_cursor and has_next):
+                return all_rows, (resolved or "")
+            vars_state["cursor"] = page_info["endCursor"]
+
+    def _graphql_post(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+        """One POST /graphql with the shared retry policy; returns the GraphQL `data` object."""
+        return self._run_with_retry(self._graphql_attempt, query, variables)
+
+    def _graphql_attempt(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+        try:
+            response = self.session.post(
+                f"{self.base_url}/graphql", json={"query": query, "variables": variables}, timeout=DEFAULT_TIMEOUT
+            )
+        except requests.RequestException as exc:
+            raise _RetryableError(
+                BACKOFF_BASE_SECONDS,
+                f"GitHub GraphQL request failed after {self.max_retries} retries: {exc}",
+                scale_with_attempt=True,
+            ) from exc
+        self._classify_response(response, retryable=True)
+        return self._graphql_extract_data(self._parse_json(response))
+
+    @staticmethod
+    def _graphql_extract_data(parsed: Any) -> dict[str, Any]:
+        """GraphQL returns HTTP 200 with {data, errors}: fail on data:null+errors; warn on partial data."""
+        if not isinstance(parsed, dict):
+            raise UserException("GitHub GraphQL returned an unexpected (non-object) response.")
+        errors = parsed.get("errors")
+        data = parsed.get("data")
+        if errors:
+            messages = "; ".join(str(e.get("message", e)) if isinstance(e, dict) else str(e) for e in errors)
+            if data is None:
+                if any(isinstance(e, dict) and e.get("type") == "RATE_LIMITED" for e in errors):
+                    raise UserException(
+                        "GitHub GraphQL rate limit (points budget) exhausted; reduce the query cost or retry later."
+                    )
+                raise UserException(f"GitHub GraphQL query failed: {messages}")
+            logging.warning("GitHub GraphQL returned partial data with errors: %s", messages)
+        if data is None:
+            raise UserException("GitHub GraphQL returned no data.")
+        return data
+
     @staticmethod
     def _unwrap(endpoint: Endpoint, payload: Any) -> list[dict[str, Any]]:
         if endpoint.envelope == Envelope.OBJECT:
@@ -217,20 +286,12 @@ class GitHubClient:
 
     # --------------------------------------------------------------- request + retry control
     def _request(self, url: str, params: dict[str, Any] | None) -> requests.Response:
-        """Perform one GET with bounded rate-limit/transient wait-and-retry, driven by tenacity.
+        """Perform one GET with bounded rate-limit/transient wait-and-retry (see _run_with_retry)."""
+        return self._run_with_retry(self._attempt, url, params)
 
-        The single-attempt logic (:meth:`_attempt`) classifies the outcome: success returns the
-        response, terminal failures (401/404/non-rate-limit 4xx) raise :class:`UserException`
-        immediately, and transient failures (network, rate-limit 403/429, 5xx) raise the internal
-        :class:`_RetryableError` carrying the header-driven wait and the give-up message.
-
-        Tenacity orchestrates the attempts: the ``wait`` callable reads that header-driven wait,
-        the ``stop`` callable enforces the SAME bounds as before — cumulative wait budget first
-        (``max_rate_limit_wait_seconds``), then attempt count (``max_retries``) — and on give-up
-        the ``retry_error_callback`` re-raises the carried message as a :class:`UserException`.
-        Only ``_RetryableError`` is retried; terminal ``UserException`` propagates untouched.
-        """
-        retrying = Retrying(
+    def _retrying(self) -> Retrying:
+        """The shared tenacity policy used by both the REST GET path and the GraphQL POST path."""
+        return Retrying(
             retry=retry_if_exception_type(_RetryableError),
             wait=self._tenacity_wait,
             stop=self._tenacity_stop,
@@ -238,7 +299,9 @@ class GitHubClient:
             retry_error_callback=self._tenacity_giveup,
             reraise=True,
         )
-        return retrying(self._attempt, url, params)
+
+    def _run_with_retry(self, fn: Callable[..., Any], *args: Any) -> Any:
+        return self._retrying()(fn, *args)
 
     def _attempt(self, url: str, params: dict[str, Any] | None) -> requests.Response:
         """One GET; success → response, terminal → UserException, transient → ``_RetryableError``."""

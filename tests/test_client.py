@@ -250,3 +250,74 @@ def test_session_headers_set():
     assert c.session.headers["Authorization"] == "Bearer ghp_abc"
     assert c.session.headers["Accept"] == "application/vnd.github+json"
     assert c.session.headers["X-GitHub-Api-Version"] == "2022-11-28"
+
+
+@responses.activate
+def test_graphql_single_page_detects_rows_path(client):
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json={
+            "data": {
+                "organization": {
+                    "repositories": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [{"nameWithOwner": "o/a"}, {"nameWithOwner": "o/b"}],
+                    }
+                }
+            }
+        },
+        status=200,
+    )
+    rows, resolved = client.graphql("query($cursor:String){ x }", {"org": "o"})
+    assert resolved == "organization.repositories.nodes"
+    assert [r["nameWithOwner"] for r in rows] == ["o/a", "o/b"]
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_graphql_errors_with_null_data_raises(client):
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json={"data": None, "errors": [{"message": "Field 'bogus' doesn't exist"}]},
+        status=200,
+    )
+    with pytest.raises(UserException, match="bogus"):
+        client.graphql("{ bogus }", {})
+
+
+@responses.activate
+def test_graphql_partial_data_warns_and_returns(client):
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json={"data": {"viewer": {"login": "octocat"}}, "errors": [{"message": "timeout on field x"}]},
+        status=200,
+    )
+    rows, resolved = client.graphql("{ viewer { login } }", {})
+    assert resolved == "viewer" and rows == [{"login": "octocat"}]
+
+
+@responses.activate
+def test_graphql_rate_limited_type_raises(client):
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json={"data": None, "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}]},
+        status=200,
+    )
+    with pytest.raises(UserException, match="rate limit"):
+        client.graphql("{ x }", {})
+
+
+@responses.activate
+def test_graphql_explicit_rows_path_overrides_detection(client):
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json={"data": {"a": {"items": [{"x": 1}], "others": [{"y": 2}]}}},
+        status=200,
+    )
+    rows, resolved = client.graphql("{ a { items others } }", {}, rows_path="a.items")
+    assert resolved == "a.items" and rows == [{"x": 1}]
