@@ -11,7 +11,7 @@ flattens to the declared schema, writes a headerless typed CSV + manifest, and a
 import csv
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from keboola.component.base import ComponentBase, sync_action
@@ -33,7 +33,13 @@ from endpoints import (
     output_columns,
     record_in_window,
 )
-from graphql_source import TEMPLATES, apply_date_placeholders, collect_columns, flatten_graphql_node
+from graphql_source import (
+    TEMPLATES,
+    apply_date_placeholders,
+    collect_columns,
+    flatten_graphql_node,
+    has_window_placeholder,
+)
 
 
 def _redact_authorization(request: Any) -> Any:
@@ -159,19 +165,33 @@ class Component(ComponentBase):
             output_table = self.cfg.output_table
             primary_key = self.cfg.primary_key
 
-        # Substitute {{since}}/{{until}} with the resolved (dateparser) window dates so a GraphQL row can
-        # roll its own window — e.g. `updated:>={{since}}` with Since = "60 days ago" (§ rolling window).
         since_dt, until_dt = self.cfg.parsed_since(), self.cfg.parsed_until()
-        since_s = since_dt.isoformat() if since_dt else None
-        until_s = until_dt.isoformat() if until_dt else None
-        query = apply_date_placeholders(query, since_s, until_s)
-        variables = {
-            key: (apply_date_placeholders(val, since_s, until_s) if isinstance(val, str) else val)
-            for key, val in variables.items()
-        }
+
+        # Detect {{window}} placeholder: sharded mode (each shard gets a concrete date-range substituted).
+        windowed = has_window_placeholder(query) or any(
+            isinstance(v, str) and has_window_placeholder(v) for v in variables.values()
+        )
 
         logging.info("Running GraphQL query (template=%s) into table '%s'.", self.cfg.query_template, output_table)
-        raw_rows, _resolved = self.client.graphql(query, variables, rows_path)
+
+        if windowed:
+            if since_dt is None:
+                raise UserException(
+                    "{{window}} requires a Since value, e.g. '90 days ago'. Set the Since field on this row."
+                )
+            until_eff = until_dt or datetime.now(UTC)
+            raw_rows, _resolved = self.client.graphql_sharded(query, variables, rows_path, since_dt, until_eff)
+        else:
+            # Substitute {{since}}/{{until}} with the resolved (dateparser) window dates so a GraphQL row can
+            # roll its own window — e.g. `updated:>={{since}}` with Since = "60 days ago" (§ rolling window).
+            since_s = since_dt.isoformat() if since_dt else None
+            until_s = until_dt.isoformat() if until_dt else None
+            query = apply_date_placeholders(query, since_s, until_s)
+            variables = {
+                key: (apply_date_placeholders(val, since_s, until_s) if isinstance(val, str) else val)
+                for key, val in variables.items()
+            }
+            raw_rows, _resolved = self.client.graphql(query, variables, rows_path)
         rows = [flatten_graphql_node(node) for node in raw_rows]
 
         incremental = self.cfg.incremental_load and bool(primary_key)

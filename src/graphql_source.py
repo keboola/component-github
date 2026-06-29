@@ -51,6 +51,23 @@ def flatten_graphql_node(node: dict[str, Any], sep: str = "_") -> dict[str, Any]
 
 _DATE_PLACEHOLDER = re.compile(r"\{\{\s*(since|until)\s*\}\}")
 
+_WINDOW_PLACEHOLDER = re.compile(r"\{\{\s*window\s*\}\}")
+
+
+def has_window_placeholder(text: str) -> bool:
+    """Return True when *text* contains a ``{{window}}`` placeholder."""
+    return bool(_WINDOW_PLACEHOLDER.search(text))
+
+
+def apply_window_placeholder(text: str, range_str: str) -> str:
+    """Replace ``{{window}}`` with *range_str* (a GitHub date-range string)."""
+    return _WINDOW_PLACEHOLDER.sub(range_str, text)
+
+
+def iso_range(lo: Any, hi: Any) -> str:
+    """Return a GitHub date-range string ``"{lo_iso}..{hi_iso}"`` from two tz-aware datetimes."""
+    return f"{lo.isoformat()}..{hi.isoformat()}"
+
 
 def apply_date_placeholders(text: str, since: str | None, until: str | None) -> str:
     """Substitute ``{{since}}`` / ``{{until}}`` in a query/variable string with resolved date strings.
@@ -290,7 +307,7 @@ TEMPLATES: dict[str, GraphQLTemplate] = {
     ),
     "org_pull_requests": GraphQLTemplate(
         build_query=_org_pull_requests_query,
-        build_variables=lambda p: {"q": f"org:{p['org']} is:pr updated:>={{{{since}}}} sort:updated-desc"},
+        build_variables=lambda p: {"q": f"org:{p['org']} is:pr updated:{{{{window}}}} sort:updated-desc"},
         rows_path="search.nodes",
         output_table="pull_requests_graphql",
         primary_key=["id"],

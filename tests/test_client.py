@@ -2,6 +2,7 @@
 
 import logging
 import time
+from datetime import UTC, datetime
 
 import pytest
 import requests
@@ -396,3 +397,162 @@ def test_graphql_single_object_is_one_row(client):
     )
     rows, resolved = client.graphql("{ viewer { login name } }", {})
     assert resolved == "viewer" and rows == [{"login": "octocat", "name": "Octo"}]
+
+
+# --------------------------------------------------- graphql_sharded
+
+
+def _search_response(issue_count: int, nodes: list, *, has_next: bool = False, cursor: str | None = None) -> dict:
+    """Build a minimal GitHub search response for sharding tests."""
+    return {
+        "data": {
+            "search": {
+                "issueCount": issue_count,
+                "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
+                "nodes": nodes,
+            }
+        }
+    }
+
+
+SHARDED_QUERY = "query($q:String!, $cursor:String){ search(query:$q, type:ISSUE, first:50, after:$cursor){ issueCount pageInfo{hasNextPage endCursor} nodes{ ... on PullRequest { id title } } } }"
+SHARDED_VARS = {"q": "org:acme is:pr updated:{{window}}"}
+SHARDED_PATH = "search.nodes"
+
+SINCE = datetime(2026, 1, 1, tzinfo=UTC)
+UNTIL = datetime(2026, 6, 30, tzinfo=UTC)
+
+
+@responses.activate
+def test_graphql_sharded_single_shard_no_bisection(client):
+    """issueCount <= 1000 on the first probe: no bisection, just one full fetch (single page)."""
+    # Probe response (first POST) — also used as the full fetch since it has hasNextPage: false.
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json=_search_response(10, [{"id": "PR_1", "title": "fix: one"}, {"id": "PR_2", "title": "feat: two"}]),
+        status=200,
+    )
+    # Full fetch (second POST, same shard, no cursor).
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json=_search_response(10, [{"id": "PR_1", "title": "fix: one"}, {"id": "PR_2", "title": "feat: two"}]),
+        status=200,
+    )
+    rows, resolved = client.graphql_sharded(SHARDED_QUERY, SHARDED_VARS, SHARDED_PATH, SINCE, UNTIL)
+    assert resolved == SHARDED_PATH
+    assert [r["id"] for r in rows] == ["PR_1", "PR_2"]
+    # probe + one full-fetch = 2 POSTs
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_graphql_sharded_bisects_on_large_issue_count(client):
+    """issueCount > 1000 on the root probe → bisect into two sub-ranges, each fetched fully, rows unioned."""
+    # 1. Root probe: issueCount=1500 → bisect
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json=_search_response(1500, []),
+        status=200,
+    )
+    # 2. Left-half probe: issueCount=600 → fetch
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json=_search_response(600, []),
+        status=200,
+    )
+    # 3. Left-half full fetch (single page)
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json=_search_response(600, [{"id": "PR_A1"}, {"id": "PR_A2"}]),
+        status=200,
+    )
+    # 4. Right-half probe: issueCount=900 → fetch
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json=_search_response(900, []),
+        status=200,
+    )
+    # 5. Right-half full fetch (single page)
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json=_search_response(900, [{"id": "PR_B1"}, {"id": "PR_B2"}]),
+        status=200,
+    )
+    rows, resolved = client.graphql_sharded(SHARDED_QUERY, SHARDED_VARS, SHARDED_PATH, SINCE, UNTIL)
+    assert resolved == SHARDED_PATH
+    assert [r["id"] for r in rows] == ["PR_A1", "PR_A2", "PR_B1", "PR_B2"]
+    assert len(responses.calls) == 5
+
+
+@responses.activate
+def test_graphql_sharded_deduplicates_boundary_ids(client):
+    """A PR id appearing in both halves (boundary overlap) must appear only once in the output."""
+    # Root probe → bisect
+    responses.add(responses.POST, "https://api.github.com/graphql", json=_search_response(1500, []), status=200)
+    # Left probe → fetch
+    responses.add(responses.POST, "https://api.github.com/graphql", json=_search_response(800, []), status=200)
+    # Left full fetch — PR_BOUNDARY appears here
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json=_search_response(800, [{"id": "PR_BOUNDARY"}, {"id": "PR_LEFT"}]),
+        status=200,
+    )
+    # Right probe → fetch
+    responses.add(responses.POST, "https://api.github.com/graphql", json=_search_response(700, []), status=200)
+    # Right full fetch — PR_BOUNDARY appears again
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json=_search_response(700, [{"id": "PR_BOUNDARY"}, {"id": "PR_RIGHT"}]),
+        status=200,
+    )
+    rows, _ = client.graphql_sharded(SHARDED_QUERY, SHARDED_VARS, SHARDED_PATH, SINCE, UNTIL)
+    ids = [r["id"] for r in rows]
+    assert ids.count("PR_BOUNDARY") == 1
+    assert "PR_LEFT" in ids and "PR_RIGHT" in ids
+    assert len(ids) == 3
+
+
+@responses.activate
+def test_graphql_sharded_no_issue_count_falls_back_with_warning(client, caplog):
+    """When issueCount is absent, fall back to a single full fetch and emit a warning."""
+    # First POST: no issueCount field
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json={
+            "data": {
+                "search": {
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [{"id": "PR_X"}],
+                }
+            }
+        },
+        status=200,
+    )
+    # Second POST: full fetch (no pagination needed)
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json={
+            "data": {
+                "search": {
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [{"id": "PR_X"}],
+                }
+            }
+        },
+        status=200,
+    )
+    with caplog.at_level(logging.WARNING):
+        rows, _ = client.graphql_sharded(SHARDED_QUERY, SHARDED_VARS, SHARDED_PATH, SINCE, UNTIL)
+    assert [r["id"] for r in rows] == ["PR_X"]
+    assert "issueCount" in caplog.text

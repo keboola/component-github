@@ -23,9 +23,22 @@ from keboola.component.exceptions import UserException
 from tenacity import RetryCallState, Retrying, retry_if_exception_type
 
 from endpoints import Endpoint, Envelope
-from graphql_source import connection_path, detect_rows_path, read_path
+from graphql_source import (
+    apply_window_placeholder,
+    connection_path,
+    detect_rows_path,
+    has_window_placeholder,
+    iso_range,
+    read_path,
+)
 
 BASE_URL = "https://api.github.com"
+
+#: GitHub search hard-caps results at this value per query.
+GRAPHQL_SEARCH_CAP = 1000
+
+#: Below this many seconds a shard cannot be bisected further; fetch capped + warn.
+MIN_SHARD_SECONDS = 1
 API_VERSION = "2022-11-28"
 ACCEPT = "application/vnd.github+json"
 
@@ -203,6 +216,16 @@ class GitHubClient:
         Pagination follows the GraphQL cursor convention: it advances only when the query declares a
         `$cursor` variable AND the connection exposes `pageInfo {hasNextPage endCursor}`.
         """
+        return self._graphql_fetch_all(query, variables, rows_path)
+
+    def _graphql_fetch_all(
+        self, query: str, variables: dict[str, Any], rows_path: str | None
+    ) -> tuple[list[dict[str, Any]], str]:
+        """Cursor-paginate one GraphQL query and return (all raw row nodes, resolved rows_path).
+
+        Extracted from graphql() so graphql_sharded() can reuse it per shard without changing
+        graphql()'s public signature or behaviour.
+        """
         vars_state: dict[str, Any] = dict(variables or {})
         supports_cursor = "$cursor" in query
         all_rows: list[dict[str, Any]] = []
@@ -222,6 +245,105 @@ class GitHubClient:
             if not (supports_cursor and has_next):
                 return all_rows, (resolved or "")
             vars_state["cursor"] = page_info["endCursor"]
+
+    def graphql_sharded(
+        self,
+        query: str,
+        variables: dict[str, Any],
+        rows_path: str | None,
+        since: Any,
+        until: Any,
+    ) -> tuple[list[dict[str, Any]], str]:
+        """Adaptively shard a search query by updated:<range> so each shard is <= the 1000 cap, union rows.
+
+        Per range [lo, hi]: substitute {{window}} -> iso_range(lo, hi) in query + variable string values,
+        POST once to read search.issueCount; if issueCount > cap and the range is splittable, bisect at the
+        midpoint and recurse; otherwise fetch the range in full (cursor pagination) and union rows, deduped
+        by node 'id' (boundary instants can land a PR in two adjacent ranges). issueCount is read at
+        connection_path(rows_path) + '.issueCount'.
+        """
+
+        def _apply_window(q: str, vs: dict[str, Any], range_str: str) -> tuple[str, dict[str, Any]]:
+            wq = apply_window_placeholder(q, range_str) if has_window_placeholder(q) else q
+            wvs = {
+                k: (apply_window_placeholder(v, range_str) if isinstance(v, str) and has_window_placeholder(v) else v)
+                for k, v in vs.items()
+            }
+            return wq, wvs
+
+        # FIFO queue of (lo, hi) datetime ranges to process.
+        queue: list[tuple[Any, Any]] = [(since, until)]
+        resolved_path: str | None = rows_path
+
+        # Dedup-by-id union: dict keyed by row["id"] for rows that have one; ordered list for all.
+        seen_ids: dict[Any, None] = {}  # ordered dict used as ordered set
+        ordered: list[dict[str, Any]] = []
+
+        def _union_rows(new_rows: list[dict[str, Any]]) -> None:
+            for row in new_rows:
+                rid = row.get("id")
+                if rid is not None:
+                    if rid in seen_ids:
+                        continue
+                    seen_ids[rid] = None
+                ordered.append(row)
+
+        while queue:
+            lo, hi = queue.pop(0)  # FIFO — deterministic order
+            range_str = iso_range(lo, hi)
+            wq, wvs = _apply_window(query, variables, range_str)
+
+            # Probe: one POST to read issueCount (no cursor pagination needed).
+            probe_data = self._graphql_post(wq, wvs)
+
+            # Resolve rows_path on the first probe when the caller passed None.
+            if resolved_path is None:
+                resolved_path = detect_rows_path(probe_data)
+
+            conn = connection_path(resolved_path) if resolved_path else None
+            count_path = f"{conn}.issueCount" if conn else "issueCount"
+            count = read_path(probe_data, count_path)
+
+            if count is None:
+                # issueCount not present — can't shard; fall back to one full fetch + warn.
+                logging.warning(
+                    "graphql_sharded: issueCount not found at '%s'; sharding requires issueCount in the query. "
+                    "Fetching the whole window once (results may be truncated at %d).",
+                    count_path,
+                    GRAPHQL_SEARCH_CAP,
+                )
+                rows, resolved_path = self._graphql_fetch_all(wq, wvs, resolved_path)
+                _union_rows(rows)
+                break
+
+            logging.info(
+                "graphql_sharded: range=%s issueCount=%d running_total=%d",
+                range_str,
+                count,
+                len(ordered),
+            )
+
+            if count > GRAPHQL_SEARCH_CAP and (hi - lo).total_seconds() > MIN_SHARD_SECONDS:
+                # Bisect: discard probe nodes, enqueue two halves (FIFO → left half first).
+                mid = lo + (hi - lo) / 2
+                queue.insert(0, (mid, hi))
+                queue.insert(0, (lo, mid))
+                continue
+
+            if count > GRAPHQL_SEARCH_CAP:
+                logging.warning(
+                    "graphql_sharded: minimal range %s still has issueCount=%d > %d; "
+                    "results will be truncated by GitHub.",
+                    range_str,
+                    count,
+                    GRAPHQL_SEARCH_CAP,
+                )
+
+            # Fetch this shard in full (cursor pagination).
+            rows, resolved_path = self._graphql_fetch_all(wq, wvs, resolved_path)
+            _union_rows(rows)
+
+        return ordered, resolved_path or ""
 
     def _graphql_post(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         """One POST /graphql with the shared retry policy; returns the GraphQL `data` object."""

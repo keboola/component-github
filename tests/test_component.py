@@ -197,3 +197,60 @@ def test_run_graphql_primary_key_missing_column_raises(tmp_path):
     comp.client.graphql = MagicMock(return_value=([{"login": "octocat"}], "viewer"))
     with pytest.raises(UserException, match="Primary key"):
         comp.run()
+
+
+# --------------------------------------------------- {{window}} sharding dispatch
+
+
+def test_run_graphql_window_placeholder_dispatches_to_graphql_sharded(tmp_path):
+    """When gql_variables contains {{window}} + since is set, _run_graphql calls graphql_sharded, not graphql."""
+
+    comp = _component(
+        tmp_path,
+        {
+            **PAT,
+            "endpoint": "graphql_query",
+            "query_template": "custom",
+            "gql_query": "query($q:String!, $cursor:String){ search(query:$q, type:ISSUE, first:50, after:$cursor){ issueCount pageInfo{hasNextPage endCursor} nodes{ ... on PullRequest { id } } } }",
+            "gql_variables": '{"q": "org:acme is:pr updated:{{window}}"}',
+            "gql_row_path": "search.nodes",
+            "output_table": "prs_sharded",
+            "since": "90 days ago",
+            "load_type": "full_load",
+        },
+    )
+    comp.client.graphql_sharded = MagicMock(return_value=([{"id": "PR_1"}], "search.nodes"))
+    comp.client.graphql = MagicMock(return_value=([{"id": "PR_WRONG"}], "search.nodes"))
+    comp.run()
+    # graphql_sharded must have been called with non-null since and until
+    comp.client.graphql_sharded.assert_called_once()
+    call_args = comp.client.graphql_sharded.call_args
+    _, _, _, since_arg, until_arg = call_args.args
+    assert since_arg is not None
+    assert until_arg is not None
+    # graphql (plain) must NOT have been called
+    comp.client.graphql.assert_not_called()
+
+
+def test_run_graphql_window_without_since_raises(tmp_path):
+    """{{window}} with no Since field must raise UserException before any HTTP call."""
+    from keboola.component.exceptions import UserException
+
+    comp = _component(
+        tmp_path,
+        {
+            **PAT,
+            "endpoint": "graphql_query",
+            "query_template": "custom",
+            "gql_query": "query($q:String!){ search(query:$q, type:ISSUE, first:1){ issueCount nodes{ ... on PullRequest { id } } } }",
+            "gql_variables": '{"q": "org:acme is:pr updated:{{window}}"}',
+            "gql_row_path": "search.nodes",
+            "output_table": "prs_sharded",
+            "load_type": "full_load",
+            # no "since" key → parsed_since() returns None
+        },
+    )
+    comp.client.graphql_sharded = MagicMock()
+    with pytest.raises(UserException, match="window"):
+        comp.run()
+    comp.client.graphql_sharded.assert_not_called()

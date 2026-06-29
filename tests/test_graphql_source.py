@@ -1,15 +1,20 @@
 """Unit tests for the GraphQL flatten / detection / template helpers."""
 
+from datetime import UTC, datetime
+
 import pytest
 from keboola.component.exceptions import UserException
 
 from graphql_source import (
     TEMPLATES,
     apply_date_placeholders,
+    apply_window_placeholder,
     collect_columns,
     connection_path,
     detect_rows_path,
     flatten_graphql_node,
+    has_window_placeholder,
+    iso_range,
     read_path,
     sanitize_alias,
 )
@@ -145,11 +150,11 @@ def test_org_pull_requests_template_metadata():
     assert tpl.primary_key == ["id"]
 
 
-def test_org_pull_requests_build_variables_preserves_since_placeholder():
-    """build_variables must embed the literal {{since}} so the component substitutes it later."""
+def test_org_pull_requests_build_variables_preserves_window_placeholder():
+    """build_variables must embed the literal {{window}} so the component substitutes it per shard."""
     tpl = TEMPLATES["org_pull_requests"]
     variables = tpl.build_variables({"org": "acme"})
-    assert variables["q"] == "org:acme is:pr updated:>={{since}} sort:updated-desc"
+    assert variables["q"] == "org:acme is:pr updated:{{window}} sort:updated-desc"
 
 
 def test_org_repository_languages_template_query_content():
@@ -191,3 +196,46 @@ def test_org_commits_template_metadata():
 def test_org_commits_build_variables():
     tpl = TEMPLATES["org_commits"]
     assert tpl.build_variables({"org": "acme"}) == {"org": "acme"}
+
+
+# --------------------------------------------------- window placeholder helpers
+
+
+def test_has_window_placeholder_true():
+    assert has_window_placeholder("updated:{{window}} sort:updated-desc") is True
+    assert has_window_placeholder("updated:{{ window }} sort:updated-desc") is True
+
+
+def test_has_window_placeholder_false():
+    assert has_window_placeholder("updated:>={{since}} sort:updated-desc") is False
+    assert has_window_placeholder("no placeholder here") is False
+
+
+def test_apply_window_placeholder_substitutes():
+    result = apply_window_placeholder(
+        "updated:{{window}} sort:updated-desc", "2026-01-01T00:00:00+00:00..2026-06-29T00:00:00+00:00"
+    )
+    assert result == "updated:2026-01-01T00:00:00+00:00..2026-06-29T00:00:00+00:00 sort:updated-desc"
+
+
+def test_apply_window_placeholder_spaces_substitutes():
+    result = apply_window_placeholder("updated:{{ window }}", "A..B")
+    assert result == "updated:A..B"
+
+
+def test_iso_range_format():
+    lo = datetime(2026, 1, 1, tzinfo=UTC)
+    hi = datetime(2026, 6, 29, 12, 0, 0, tzinfo=UTC)
+    result = iso_range(lo, hi)
+    assert result == "2026-01-01T00:00:00+00:00..2026-06-29T12:00:00+00:00"
+    assert ".." in result
+    assert result.startswith("2026-01-01")
+
+
+def test_org_pull_requests_template_uses_window_placeholder():
+    """The org_pull_requests template must use {{window}} (not {{since}}) for sharded mode."""
+    tpl = TEMPLATES["org_pull_requests"]
+    variables = tpl.build_variables({"org": "keboola"})
+    assert "{{window}}" in variables["q"]
+    assert "{{since}}" not in variables["q"]
+    assert has_window_placeholder(variables["q"])
