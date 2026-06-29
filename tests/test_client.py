@@ -1,5 +1,6 @@
 """Unit tests for the auth-agnostic GitHub client (mocked HTTP via ``responses``)."""
 
+import logging
 import time
 
 import pytest
@@ -288,15 +289,17 @@ def test_graphql_errors_with_null_data_raises(client):
 
 
 @responses.activate
-def test_graphql_partial_data_warns_and_returns(client):
+def test_graphql_partial_data_warns_and_returns(client, caplog):
     responses.add(
         responses.POST,
         "https://api.github.com/graphql",
         json={"data": {"viewer": {"login": "octocat"}}, "errors": [{"message": "timeout on field x"}]},
         status=200,
     )
-    rows, resolved = client.graphql("{ viewer { login } }", {})
+    with caplog.at_level(logging.WARNING):
+        rows, resolved = client.graphql("{ viewer { login } }", {})
     assert resolved == "viewer" and rows == [{"login": "octocat"}]
+    assert "timeout on field x" in caplog.text
 
 
 @responses.activate
