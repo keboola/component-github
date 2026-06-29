@@ -37,3 +37,22 @@ comments, pulls, workflow runs, user/org repositories):
 
 Sources without an incremental signal (branches, tags, members, languages, releases, …) always
 do a full replace so records deleted on GitHub are removed from the table.
+
+### GraphQL Query (advanced)
+
+Select **GraphQL Query** as the Data Source to run a GitHub GraphQL query and load its result as one
+table. Every column is loaded as text; nested objects become `parent_child` columns and nested lists
+become a JSON-encoded cell.
+
+- **Query Template** — pick a built-in query or **Custom**.
+  - **Org repos: AI config files** — for every repository in an **Organization**, reports whether each
+    **File name** (default `AGENTS.md`, `CLAUDE.md`) exists and its content. One row per repository.
+  - **Repository: Open PRs with review decision** — open pull requests of one **Organization** /
+    **Repository**, including the GraphQL-only `reviewDecision`.
+- **Custom** — paste a **GraphQL Query** and optional **GraphQL Variables** (a JSON object) and set an
+  **Output table** name. To page through large results, select `pageInfo { hasNextPage endCursor }` on the
+  connection and declare a `$cursor` variable used as `after: $cursor`.
+- **Row path (advanced)** — dotted path under `data` to the list that becomes your rows (e.g.
+  `organization.repositories.nodes`). Leave empty to auto-detect; set it only when the query returns more
+  than one list.
+- **Primary key** — comma-separated result column name(s) for incremental upsert (empty = full load).

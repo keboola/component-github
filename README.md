@@ -93,6 +93,25 @@ key (e.g. `repository_issues`, `organization_members`, `repository_languages`):
 If you need additional endpoints, please submit your request to
 [ideas.keboola.com](https://ideas.keboola.com/).
 
+GraphQL Query (advanced)
+------------------------
+
+In addition to the REST endpoints above, you can write custom GraphQL queries to fetch any GitHub data
+not covered by the preset endpoints. Select **GraphQL Query** as the Data Source and choose a
+**Query Template** or write a **Custom** query. Output is one flattened all-STRING table; nested
+objects become `parent_child` columns and nested lists become JSON cells.
+
+- **Query Templates** — two built-in templates are included:
+  - **Org repos: AI config files** — scans every repository in an organization for `AGENTS.md` and
+    `CLAUDE.md` files, reporting whether they exist and their content. One row per repository.
+  - **Repository: Open PRs with review decision** — fetches open pull requests of a repository,
+    including the GraphQL-only `reviewDecision` field.
+- **Custom** — paste a GraphQL query (and optional JSON variables), name an output table, and optionally
+  set **Row path** (dotted path to the data list, e.g. `organization.repositories.nodes`) if
+  auto-detection fails. For pagination, select `pageInfo { hasNextPage endCursor }` on the connection
+  and use a `$cursor` variable with `after: $cursor`.
+- **Primary key** — comma-separated column(s) for incremental upsert (empty = full load each run).
+
 Configuration
 =============
 
