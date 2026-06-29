@@ -324,3 +324,75 @@ def test_graphql_explicit_rows_path_overrides_detection(client):
     )
     rows, resolved = client.graphql("{ a { items others } }", {}, rows_path="a.items")
     assert resolved == "a.items" and rows == [{"x": 1}]
+
+
+@responses.activate
+def test_graphql_follows_cursor_across_two_pages(client):
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json={
+            "data": {
+                "organization": {
+                    "repositories": {
+                        "pageInfo": {"hasNextPage": True, "endCursor": "CURSOR1"},
+                        "nodes": [{"nameWithOwner": "o/a"}],
+                    }
+                }
+            }
+        },
+        status=200,
+    )
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json={
+            "data": {
+                "organization": {
+                    "repositories": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [{"nameWithOwner": "o/b"}],
+                    }
+                }
+            }
+        },
+        status=200,
+    )
+    rows, _ = client.graphql("query($cursor:String){ x }", {"org": "o"})
+    assert [r["nameWithOwner"] for r in rows] == ["o/a", "o/b"]
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_graphql_no_cursor_variable_single_page(client):
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json={
+            "data": {
+                "organization": {
+                    "repositories": {
+                        "pageInfo": {"hasNextPage": True, "endCursor": "CURSOR1"},
+                        "nodes": [{"nameWithOwner": "o/a"}],
+                    }
+                }
+            }
+        },
+        status=200,
+    )
+    # query has no $cursor -> we do NOT paginate even though hasNextPage is true
+    rows, _ = client.graphql("{ organization { repositories { nodes { nameWithOwner } } } }", {})
+    assert [r["nameWithOwner"] for r in rows] == ["o/a"]
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_graphql_single_object_is_one_row(client):
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json={"data": {"viewer": {"login": "octocat", "name": "Octo"}}},
+        status=200,
+    )
+    rows, resolved = client.graphql("{ viewer { login name } }", {})
+    assert resolved == "viewer" and rows == [{"login": "octocat", "name": "Octo"}]
