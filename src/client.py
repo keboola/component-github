@@ -29,8 +29,10 @@ API_VERSION = "2022-11-28"
 ACCEPT = "application/vnd.github+json"
 
 #: Hard ceiling on the *total* time the client will wait across all rate-limit/backoff sleeps
-#: in a single ``fetch``. Exceeding it raises UserException. Injectable for tests.
-MAX_RATE_LIMIT_WAIT_SECONDS = 3600
+#: in a single ``fetch``. Exceeding it raises UserException. Injectable for tests. Set to 2h so a
+#: fetch can wait through more than one hourly rate-limit reset before giving up (backfills on a
+#: single 5k/hr PAT routinely span multiple resets).
+MAX_RATE_LIMIT_WAIT_SECONDS = 7200
 
 #: Max retry attempts for a single request before giving up (rate-limit or transient).
 MAX_RETRIES = 8
