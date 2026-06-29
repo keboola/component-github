@@ -1,6 +1,7 @@
 """Unit tests for the GraphQL flatten / detection / template helpers."""
 
 import pytest
+from keboola.component.exceptions import UserException
 
 from graphql_source import (
     collect_columns,
@@ -67,11 +68,11 @@ def test_detect_rows_path_single_object_is_one_row():
 
 def test_detect_rows_path_ambiguous_sibling_arrays_raises():
     data = {"a": {"items": [{"x": 1}], "others": [{"y": 2}]}}
-    with pytest.raises(Exception, match="Row path"):
+    with pytest.raises(UserException, match="Row path"):
         detect_rows_path(data)
 
 
 def test_detect_rows_path_ambiguous_object_children_raises():
     data = {"a": {"login": "x"}, "b": {"login": "y"}}
-    with pytest.raises(Exception, match="Row path"):
+    with pytest.raises(UserException, match="Row path"):
         detect_rows_path(data)
