@@ -473,9 +473,10 @@ class Component(ComponentBase):
 
     @sync_action("listRepositories")
     def list_repositories(self) -> list[SelectElement]:
-        # The first selected org scopes the picker (the UI reloads it as `organization` changes);
-        # no org selected → the authenticated user's repos.
-        org = self.cfg.organization[0] if self.cfg.organization else ""
+        # The first selected org scopes the picker (the UI reloads it as `organization` changes).
+        # For the GraphQL template, fall back to gql_org when the REST organization field is empty.
+        # No org at all → the authenticated user's repos.
+        org = self.cfg.organization[0] if self.cfg.organization else (self.cfg.gql_org or "")
         return [SelectElement(value=name, label=name) for name in self._list_repo_fullnames(org)]
 
     @sync_action("listTeams")

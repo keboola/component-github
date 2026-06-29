@@ -190,6 +190,18 @@ def _pull_request_reviews_query(params: dict[str, Any]) -> str:
 }"""
 
 
+def _pr_reviews_variables(params: dict[str, Any]) -> dict[str, Any]:
+    """Build variables for the org_pull_request_reviews template.
+
+    ``gql_repo`` is stored as ``owner/repo`` (the full_name returned by listRepositories) or as a
+    bare repository name. Either form is accepted: the owner prefix is stripped so the GraphQL
+    ``$repo`` variable always receives the bare name, while ``$org`` is taken from ``gql_org``.
+    """
+    repo_raw: str = params.get("repo", "") or ""
+    repo = repo_raw.rpartition("/")[2] if "/" in repo_raw else repo_raw
+    return {"org": params["org"], "repo": repo}
+
+
 TEMPLATES: dict[str, GraphQLTemplate] = {
     "org_ai_config_files": GraphQLTemplate(
         build_query=_ai_config_query,
@@ -200,7 +212,7 @@ TEMPLATES: dict[str, GraphQLTemplate] = {
     ),
     "org_pull_request_reviews": GraphQLTemplate(
         build_query=_pull_request_reviews_query,
-        build_variables=lambda p: {"org": p["org"], "repo": p["repo"]},
+        build_variables=_pr_reviews_variables,
         rows_path="repository.pullRequests.nodes",
         output_table="repo_open_pull_requests",
         primary_key=["number"],

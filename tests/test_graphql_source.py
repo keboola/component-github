@@ -112,3 +112,15 @@ def test_pr_reviews_template_uses_org_and_repo():
     assert tpl.build_variables({"org": "acme", "repo": "web"}) == {"org": "acme", "repo": "web"}
     assert tpl.rows_path == "repository.pullRequests.nodes"
     assert tpl.primary_key == ["number"]
+
+
+def test_pr_reviews_build_variables_strips_owner_prefix():
+    """gql_repo stored as owner/repo (from listRepositories) → bare name in $repo variable."""
+    tpl = TEMPLATES["org_pull_request_reviews"]
+    assert tpl.build_variables({"org": "acme", "repo": "acme/web"}) == {"org": "acme", "repo": "web"}
+
+
+def test_pr_reviews_build_variables_bare_name_unchanged():
+    """gql_repo already a bare name (no slash) → passed through unchanged."""
+    tpl = TEMPLATES["org_pull_request_reviews"]
+    assert tpl.build_variables({"org": "acme", "repo": "web"}) == {"org": "acme", "repo": "web"}

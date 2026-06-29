@@ -353,7 +353,7 @@
       "propertyOrder": 91,
       "options": {
         "tooltip": "Runs against https://api.github.com/graphql with your token. The result is flattened into one table (objects become parent_child columns; nested lists become a JSON cell).",
-        "dependencies": { "endpoint": ["graphql_query"] }
+        "dependencies": { "endpoint": ["graphql_query"], "query_template": ["custom"] }
       }
     },
     "gql_variables": {
@@ -363,7 +363,7 @@
       "default": "",
       "description": "A JSON object of variables for your query, e.g. {\"org\": \"acme\"}. Leave blank for none.",
       "propertyOrder": 92,
-      "options": { "dependencies": { "endpoint": ["graphql_query"] } }
+      "options": { "dependencies": { "endpoint": ["graphql_query"], "query_template": ["custom"] } }
     },
     "gql_row_path": {
       "type": "string",
@@ -372,7 +372,7 @@
       "propertyOrder": 93,
       "options": {
         "tooltip": "Dotted path under data to the list whose items become your table rows, e.g. organization.repositories.nodes. Leave empty to detect it automatically; set it only when the query returns more than one list and detection can't choose.",
-        "dependencies": { "endpoint": ["graphql_query"] }
+        "dependencies": { "endpoint": ["graphql_query"], "query_template": ["custom"] }
       }
     },
     "output_table": {
@@ -397,21 +397,35 @@
     "gql_org": {
       "type": "string",
       "title": "Organization",
+      "format": "select",
+      "enum": [],
       "default": "",
       "propertyOrder": 96,
       "options": {
+        "async": {
+          "label": "Load Organizations",
+          "action": "listOrganizations",
+          "autoload": true
+        },
         "tooltip": "Organization login the template runs against.",
-        "dependencies": { "endpoint": ["graphql_query"] }
+        "dependencies": { "endpoint": ["graphql_query"], "query_template": ["org_ai_config_files", "org_pull_request_reviews"] }
       }
     },
     "gql_repo": {
       "type": "string",
-      "title": "Repository name",
+      "title": "Repository",
+      "format": "select",
+      "enum": [],
       "default": "",
       "propertyOrder": 97,
       "options": {
-        "tooltip": "Repository name (without owner) for the Open PRs template.",
-        "dependencies": { "endpoint": ["graphql_query"] }
+        "async": {
+          "label": "Load Repositories",
+          "action": "listRepositories",
+          "autoload": ["gql_org"]
+        },
+        "tooltip": "Repository (owner/repo) for the Open PRs template.",
+        "dependencies": { "endpoint": ["graphql_query"], "query_template": ["org_pull_request_reviews"] }
       }
     },
     "gql_filenames": {
@@ -424,7 +438,7 @@
       "propertyOrder": 98,
       "options": {
         "tooltip": "Files to probe per repo (one content column group each). Default AGENTS.md + CLAUDE.md.",
-        "dependencies": { "endpoint": ["graphql_query"] }
+        "dependencies": { "endpoint": ["graphql_query"], "query_template": ["org_ai_config_files"] }
       }
     }
   }

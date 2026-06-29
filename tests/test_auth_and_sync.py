@@ -155,6 +155,29 @@ def test_list_repositories_falls_back_to_user(tmp_path):
 
 
 @responses.activate
+def test_list_repositories_uses_gql_org_when_rest_org_empty(tmp_path):
+    """listRepositories falls back to gql_org for the GraphQL template picker."""
+    responses.add(
+        responses.GET,
+        "https://api.github.com/orgs/acme/repos",
+        json=[{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+        status=200,
+    )
+    config = {
+        "parameters": {
+            "#github_token": "ghp_x",
+            "endpoint": "graphql_query",
+            "query_template": "org_pull_request_reviews",
+            "gql_org": "acme",
+            "gql_repo": "acme/web",
+        }
+    }
+    comp = _component(_datadir(tmp_path, config), patch_client=False)
+    result = comp.list_repositories()
+    assert [e.value for e in result] == ["acme/web", "acme/api"]
+
+
+@responses.activate
 def test_list_teams_shape(tmp_path):
     responses.add(
         responses.GET,
@@ -251,8 +274,36 @@ def test_row_schema_has_graphql_data_source():
     )
     endpoint = schema["properties"]["endpoint"]
     assert "graphql_query" in endpoint["enum"]
-    # the GraphQL fields exist and are gated on the graphql_query data source
-    for field in ("query_template", "gql_query", "output_table", "gql_org"):
-        assert field in schema["properties"], field
+
+    # gql_filenames must NOT be in the top-level required array (only endpoint should be)
+    assert schema.get("required") == ["endpoint"]
+
+    # query_template gated on endpoint only (shows for all graphql_query rows)
+    qt_deps = schema["properties"]["query_template"]["options"]["dependencies"]
+    assert qt_deps == {"endpoint": ["graphql_query"]}
+
+    # Custom-only fields: gated on endpoint AND query_template=custom
+    for field in ("gql_query", "gql_variables", "gql_row_path"):
         deps = schema["properties"][field]["options"]["dependencies"]
-        assert "graphql_query" in deps["endpoint"]
+        assert "graphql_query" in deps["endpoint"], field
+        assert deps["query_template"] == ["custom"], field
+
+    # gql_org: gated on endpoint AND both template values (not custom)
+    gql_org_deps = schema["properties"]["gql_org"]["options"]["dependencies"]
+    assert "graphql_query" in gql_org_deps["endpoint"]
+    assert set(gql_org_deps["query_template"]) == {"org_ai_config_files", "org_pull_request_reviews"}
+
+    # gql_repo: gated on endpoint AND org_pull_request_reviews only
+    gql_repo_deps = schema["properties"]["gql_repo"]["options"]["dependencies"]
+    assert "graphql_query" in gql_repo_deps["endpoint"]
+    assert gql_repo_deps["query_template"] == ["org_pull_request_reviews"]
+
+    # gql_filenames: gated on endpoint AND org_ai_config_files only
+    gql_fn_deps = schema["properties"]["gql_filenames"]["options"]["dependencies"]
+    assert "graphql_query" in gql_fn_deps["endpoint"]
+    assert gql_fn_deps["query_template"] == ["org_ai_config_files"]
+
+    # output_table, primary_key, since, until, load_type: gated on endpoint only (all graphql_query rows)
+    for field in ("output_table", "primary_key"):
+        deps = schema["properties"][field]["options"]["dependencies"]
+        assert deps == {"endpoint": ["graphql_query"]}, field
