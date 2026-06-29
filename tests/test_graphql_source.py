@@ -4,6 +4,7 @@ import pytest
 from keboola.component.exceptions import UserException
 
 from graphql_source import (
+    TEMPLATES,
     collect_columns,
     connection_path,
     detect_rows_path,
@@ -76,3 +77,23 @@ def test_detect_rows_path_ambiguous_object_children_raises():
     data = {"a": {"login": "x"}, "b": {"login": "y"}}
     with pytest.raises(UserException, match="Row path"):
         detect_rows_path(data)
+
+
+def test_ai_config_template_builds_aliased_blob_fields():
+    tpl = TEMPLATES["org_ai_config_files"]
+    query = tpl.build_query({"org": "acme", "filenames": ["AGENTS.md", "CLAUDE.md"]})
+    assert 'agents_md: object(expression: "HEAD:AGENTS.md")' in query
+    assert 'claude_md: object(expression: "HEAD:CLAUDE.md")' in query
+    assert "$cursor" in query and "pageInfo" in query
+    assert tpl.build_variables({"org": "acme", "filenames": []}) == {"org": "acme"}
+    assert tpl.rows_path == "organization.repositories.nodes"
+    assert tpl.primary_key == ["nameWithOwner"]
+
+
+def test_pr_reviews_template_uses_org_and_repo():
+    tpl = TEMPLATES["org_pull_request_reviews"]
+    query = tpl.build_query({"org": "acme", "repo": "web"})
+    assert "reviewDecision" in query and "pullRequests" in query
+    assert tpl.build_variables({"org": "acme", "repo": "web"}) == {"org": "acme", "repo": "web"}
+    assert tpl.rows_path == "repository.pullRequests.nodes"
+    assert tpl.primary_key == ["number"]

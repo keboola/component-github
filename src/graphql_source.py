@@ -7,6 +7,8 @@ model, or the component, so it is import-cycle-free and trivially unit-testable.
 
 import json
 import re
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from keboola.component.exceptions import UserException
@@ -117,3 +119,64 @@ def detect_rows_path(data: dict[str, Any]) -> str:
             return ".".join(path)  # bottomed out at an object -> one row ('' when path empty)
         raise UserException(_AMBIGUOUS)
     raise UserException(_AMBIGUOUS)
+
+
+@dataclass(frozen=True)
+class GraphQLTemplate:
+    """A built-in query a non-GraphQL user picks; params come from dedicated config fields."""
+
+    build_query: Callable[[dict[str, Any]], str]
+    build_variables: Callable[[dict[str, Any]], dict[str, Any]]
+    rows_path: str
+    output_table: str
+    primary_key: list[str]
+
+
+def _ai_config_query(params: dict[str, Any]) -> str:
+    filenames = params["filenames"] or ["AGENTS.md", "CLAUDE.md"]
+    blob_fields = "\n        ".join(
+        f'{sanitize_alias(fn)}: object(expression: "HEAD:{fn}") {{ ... on Blob {{ byteSize isBinary text }} }}'
+        for fn in filenames
+    )
+    return f"""query($org: String!, $cursor: String) {{
+  organization(login: $org) {{
+    repositories(first: 100, after: $cursor) {{
+      pageInfo {{ hasNextPage endCursor }}
+      nodes {{
+        nameWithOwner
+        url
+        defaultBranchRef {{ name }}
+        {blob_fields}
+      }}
+    }}
+  }}
+}}"""
+
+
+def _pull_request_reviews_query(params: dict[str, Any]) -> str:
+    return """query($org: String!, $repo: String!, $cursor: String) {
+  repository(owner: $org, name: $repo) {
+    pullRequests(states: OPEN, first: 50, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes { number title url author { login } reviewDecision createdAt updatedAt }
+    }
+  }
+}"""
+
+
+TEMPLATES: dict[str, GraphQLTemplate] = {
+    "org_ai_config_files": GraphQLTemplate(
+        build_query=_ai_config_query,
+        build_variables=lambda p: {"org": p["org"]},
+        rows_path="organization.repositories.nodes",
+        output_table="repo_ai_config_files",
+        primary_key=["nameWithOwner"],
+    ),
+    "org_pull_request_reviews": GraphQLTemplate(
+        build_query=_pull_request_reviews_query,
+        build_variables=lambda p: {"org": p["org"], "repo": p["repo"]},
+        rows_path="repository.pullRequests.nodes",
+        output_table="repo_open_pull_requests",
+        primary_key=["number"],
+    ),
+}
