@@ -3,7 +3,9 @@ import os
 import unittest
 from pathlib import Path
 from unittest import mock
+from unittest.mock import MagicMock
 
+import pytest
 from freezegun import freeze_time
 
 from component import Component
@@ -67,3 +69,100 @@ def test_resolve_targets_none_is_single_empty_context(tmp_path):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _read_csv(path):
+    import csv as _csv
+
+    with open(path, newline="") as fh:
+        return list(_csv.reader(fh))
+
+
+def test_run_graphql_custom_writes_dynamic_table(tmp_path):
+    comp = _component(
+        tmp_path,
+        {
+            **PAT,
+            "endpoint": "graphql_query",
+            "query_template": "custom",
+            "gql_query": "{ viewer { login } }",
+            "output_table": "gql_out",
+            "load_type": "full_load",
+        },
+    )
+    comp.client.graphql = MagicMock(
+        return_value=(
+            [{"nameWithOwner": "o/a", "defaultBranchRef": {"name": "main"}}, {"nameWithOwner": "o/b"}],
+            "organization.repositories.nodes",
+        )
+    )
+    comp.run()
+    out = comp.tables_out_path
+    rows = _read_csv(f"{out}/gql_out.csv")
+    # union columns, first-seen order: nameWithOwner, defaultBranchRef_name
+    assert rows[0] == ["o/a", "main"]
+    assert rows[1] == ["o/b", ""]
+
+
+def test_run_graphql_template_uses_registry(tmp_path):
+    comp = _component(
+        tmp_path,
+        {
+            **PAT,
+            "endpoint": "graphql_query",
+            "query_template": "org_ai_config_files",
+            "gql_org": "acme",
+            "load_type": "full_load",
+        },
+    )
+    captured = {}
+
+    def _fake_graphql(query, variables, rows_path):
+        captured["query"] = query
+        captured["rows_path"] = rows_path
+        return ([{"nameWithOwner": "acme/x"}], rows_path)
+
+    comp.client.graphql = MagicMock(side_effect=_fake_graphql)
+    comp.run()
+    assert 'agents_md: object(expression: "HEAD:AGENTS.md")' in captured["query"]
+    assert captured["rows_path"] == "organization.repositories.nodes"
+    # template default table name used when output_table is empty
+    assert (tmp_path / "data" / "out" / "tables" / "repo_ai_config_files.csv").exists()
+
+
+def test_run_graphql_incremental_without_pk_falls_back_to_full(tmp_path):
+    comp = _component(
+        tmp_path,
+        {
+            **PAT,
+            "endpoint": "graphql_query",
+            "query_template": "custom",
+            "gql_query": "{ viewer { login } }",
+            "output_table": "gql_out",
+            "load_type": "incremental_load",
+        },
+    )
+    comp.client.graphql = MagicMock(return_value=([{"login": "octocat"}], "viewer"))
+    comp.run()  # no primary_key set -> must not raise; writes a full load
+    manifest = json.loads((tmp_path / "data" / "out" / "tables" / "gql_out.csv.manifest").read_text())
+    assert manifest["incremental"] is False
+
+
+def test_run_graphql_primary_key_missing_column_raises(tmp_path):
+    from keboola.component.exceptions import UserException
+
+    comp = _component(
+        tmp_path,
+        {
+            **PAT,
+            "endpoint": "graphql_query",
+            "query_template": "custom",
+            "gql_query": "{ viewer { login } }",
+            "output_table": "gql_out",
+            "primary_key": "does_not_exist",
+            "load_type": "incremental_load",
+        },
+    )
+    comp.client.graphql = MagicMock(return_value=([{"login": "octocat"}], "viewer"))
+    with pytest.raises(UserException, match="Primary key"):
+        comp.run()

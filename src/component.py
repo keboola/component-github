@@ -24,6 +24,7 @@ from configuration import AuthType, Configuration
 from credentials import resolve_token
 from endpoints import (
     ENDPOINTS,
+    GRAPHQL_ENDPOINT,
     Endpoint,
     Target,
     _dig,
@@ -32,6 +33,7 @@ from endpoints import (
     output_columns,
     record_in_window,
 )
+from graphql_source import TEMPLATES, collect_columns, flatten_graphql_node
 
 
 def _redact_authorization(request: Any) -> Any:
@@ -102,6 +104,8 @@ class Component(ComponentBase):
         so widening ``since`` backfills (it always applies). A single inaccessible target (404) is
         skipped with a warning; token/rate-limit errors still abort.
         """
+        if self.cfg.endpoint == GRAPHQL_ENDPOINT:
+            return self._run_graphql()
         endpoint = self._endpoint()
         incremental = self._incremental(endpoint)
         since, until = self.cfg.parsed_since(), self.cfg.parsed_until()
@@ -136,6 +140,76 @@ class Component(ComponentBase):
         path = self._build_path(endpoint, enriched)
         params, stop_paging = self._fetch_params(endpoint, since)
         return self._collect_rows(endpoint, path, enriched, params, stop_paging, since, until)
+
+    # ------------------------------------------------------------------- graphql data source
+    def _run_graphql(self) -> None:
+        """Run a (custom or templated) GraphQL query and write its flattened result to one table."""
+        template = TEMPLATES.get(self.cfg.query_template.value)
+        if template is not None:
+            params = self._graphql_template_params()
+            query = template.build_query(params)
+            variables = template.build_variables(params)
+            rows_path: str | None = template.rows_path
+            output_table = self.cfg.output_table or template.output_table
+            primary_key = self.cfg.primary_key or list(template.primary_key)
+        else:  # custom
+            query = self.cfg.gql_query
+            variables = self.cfg.gql_variables
+            rows_path = self.cfg.gql_row_path or None
+            output_table = self.cfg.output_table
+            primary_key = self.cfg.primary_key
+
+        logging.info("Running GraphQL query (template=%s) into table '%s'.", self.cfg.query_template, output_table)
+        raw_rows, _resolved = self.client.graphql(query, variables, rows_path)
+        rows = [flatten_graphql_node(node) for node in raw_rows]
+
+        incremental = self.cfg.incremental_load and bool(primary_key)
+        if self.cfg.incremental_load and not primary_key:
+            logging.warning("Incremental load requested but no primary key set; writing a full load instead.")
+        columns = collect_columns(rows) or list(primary_key)
+        self._write_dynamic_table(output_table, columns, rows, primary_key, incremental)
+
+    def _graphql_template_params(self) -> dict[str, Any]:
+        return {"org": self.cfg.gql_org, "repo": self.cfg.gql_repo, "filenames": self.cfg.gql_filenames}
+
+    def _write_dynamic_table(
+        self,
+        name: str,
+        columns: list[str],
+        rows: list[dict[str, Any]],
+        primary_key: list[str],
+        incremental: bool,
+    ) -> None:
+        """Write a dynamic all-STRING headerless table (columns discovered from the flattened rows)."""
+        missing = [pk for pk in primary_key if pk not in columns]
+        if missing:
+            raise UserException(
+                f"Primary key column(s) {missing} are not present in the query result columns {columns}. "
+                "Adjust the Primary key or the query."
+            )
+        if not columns:
+            logging.warning("GraphQL query for table '%s' produced no rows and no columns; nothing written.", name)
+            return
+        pk_set = set(primary_key)
+        schema = {
+            col: ColumnDefinition(
+                data_types=BaseType(dtype=SupportedDataTypes.STRING),
+                primary_key=col in pk_set,
+            )
+            for col in columns
+        }
+        table = self.create_out_table_definition(
+            f"{name}.csv",
+            primary_key=primary_key,
+            incremental=incremental,
+            schema=schema,
+            has_header=False,
+        )
+        with open(table.full_path, "w", encoding="utf-8", newline="") as out_file:
+            writer = csv.DictWriter(out_file, fieldnames=columns, extrasaction="ignore")
+            writer.writerows(rows)
+        self.write_manifest(table)
+        logging.info("Wrote %d rows to table '%s'.", len(rows), name)
 
     # ------------------------------------------------------------------- run() helpers
     def _incremental(self, endpoint: Endpoint) -> bool:

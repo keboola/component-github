@@ -155,12 +155,23 @@ class Configuration(BaseModel):
                 if not isinstance(parsed, dict):
                     raise UserException('GraphQL Variables must be a JSON object (e.g. {"org": "acme"}).')
                 data["gql_variables"] = parsed
-        for key in ("primary_key", "gql_filenames"):
-            value = data.get(key)
-            if isinstance(value, str):
-                data[key] = [part.strip() for part in value.split(",") if part.strip()]
-            elif value is None:
-                data[key] = []
+        # primary_key: absent/None -> empty list; comma-string -> list
+        pk_value = data.get("primary_key")
+        if isinstance(pk_value, str):
+            data["primary_key"] = [part.strip() for part in pk_value.split(",") if part.strip()]
+        elif pk_value is None:
+            data["primary_key"] = []
+        # gql_filenames: absent/None -> leave unset (Pydantic applies the field default);
+        # comma-string -> list; empty string -> leave unset so the default applies
+        gf_value = data.get("gql_filenames")
+        if isinstance(gf_value, str):
+            parsed_gf = [part.strip() for part in gf_value.split(",") if part.strip()]
+            if parsed_gf:
+                data["gql_filenames"] = parsed_gf
+            else:
+                data.pop("gql_filenames", None)  # fall back to field default
+        elif gf_value is None:
+            data.pop("gql_filenames", None)  # fall back to field default ["AGENTS.md", "CLAUDE.md"]
         return data
 
     @model_validator(mode="after")
