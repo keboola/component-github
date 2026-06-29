@@ -419,6 +419,7 @@
       "uniqueItems": true,
       "default": ["AGENTS.md", "CLAUDE.md"],
       "items": { "type": "string" },
+      "propertyOrder": 98,
       "options": {
         "tooltip": "Files to probe per repo (one content column group each). Default AGENTS.md + CLAUDE.md.",
         "dependencies": { "endpoint": ["graphql_query"] }

@@ -111,6 +111,7 @@ objects become `parent_child` columns and nested lists become JSON cells.
   auto-detection fails. For pagination, select `pageInfo { hasNextPage endCursor }` on the connection
   and use a `$cursor` variable with `after: $cursor`.
 - **Primary key** — comma-separated column(s) for incremental upsert (empty = full load each run).
+- **Null nested objects** — when a probed file is absent, the API returns `null` for that object; the flattener collapses it to a single empty column named after the file (e.g. `agents_md`) rather than emitting the full set of `agents_md_*` sub-columns.
 
 Configuration
 =============

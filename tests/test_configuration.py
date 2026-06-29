@@ -196,6 +196,18 @@ def test_graphql_ai_config_template_rejects_filename_with_quote():
         )
 
 
+def test_graphql_ai_config_template_rejects_filename_with_backslash():
+    """A backslash in a file name would escape the closing quote in the interpolated GraphQL string."""
+    with pytest.raises(UserException, match="file name"):
+        Configuration(
+            auth_type="pat",
+            **GQL,
+            query_template="org_ai_config_files",
+            gql_org="acme",
+            gql_filenames=["AGENTS.md", "bad\\name"],
+        )
+
+
 def test_graphql_pr_reviews_template_requires_org_and_repo():
     with pytest.raises(UserException, match="Repository"):
         Configuration(auth_type="pat", **GQL, query_template="org_pull_request_reviews", gql_org="acme", gql_repo="")

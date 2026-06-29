@@ -233,8 +233,8 @@ class Configuration(BaseModel):
             if not self.gql_filenames:
                 raise UserException("At least one file name is required for the 'AI config files' template.")
             for name in self.gql_filenames:
-                if '"' in name or "\n" in name:
-                    raise UserException(f"Invalid file name '{name}': must not contain a quote or newline.")
+                if '"' in name or "\\" in name or "\n" in name or "\r" in name:
+                    raise UserException(f"Invalid file name '{name}': must not contain a quote, backslash, or newline.")
         elif self.query_template == QueryTemplate.org_pull_request_reviews:
             if not self.gql_org:
                 raise UserException("Organization is required for the 'Open PRs' template.")
