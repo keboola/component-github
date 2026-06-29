@@ -111,6 +111,7 @@ objects become `parent_child` columns and nested lists become JSON cells.
   auto-detection fails. For pagination, select `pageInfo { hasNextPage endCursor }` on the connection
   and use a `$cursor` variable with `after: $cursor`.
 - **Primary key** — comma-separated column(s) for incremental upsert (empty = full load each run).
+- **Rolling window** — set **Since**/**Until** (relative phrases like `60 days ago` are supported) and write `{{since}}`/`{{until}}` in the query or variables; the component substitutes the resolved date (`YYYY-MM-DD`) at runtime, so a window like `updated:>={{since}}` rolls automatically each run.
 - **Null nested objects** — when a probed file is absent, the API returns `null` for that object; the flattener collapses it to a single empty column named after the file (e.g. `agents_md`) rather than emitting the full set of `agents_md_*` sub-columns.
 
 Configuration

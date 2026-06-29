@@ -33,7 +33,7 @@ from endpoints import (
     output_columns,
     record_in_window,
 )
-from graphql_source import TEMPLATES, collect_columns, flatten_graphql_node
+from graphql_source import TEMPLATES, apply_date_placeholders, collect_columns, flatten_graphql_node
 
 
 def _redact_authorization(request: Any) -> Any:
@@ -158,6 +158,17 @@ class Component(ComponentBase):
             rows_path = self.cfg.gql_row_path or None
             output_table = self.cfg.output_table
             primary_key = self.cfg.primary_key
+
+        # Substitute {{since}}/{{until}} with the resolved (dateparser) window dates so a GraphQL row can
+        # roll its own window — e.g. `updated:>={{since}}` with Since = "60 days ago" (§ rolling window).
+        since_dt, until_dt = self.cfg.parsed_since(), self.cfg.parsed_until()
+        since_s = since_dt.date().isoformat() if since_dt else None
+        until_s = until_dt.date().isoformat() if until_dt else None
+        query = apply_date_placeholders(query, since_s, until_s)
+        variables = {
+            key: (apply_date_placeholders(val, since_s, until_s) if isinstance(val, str) else val)
+            for key, val in variables.items()
+        }
 
         logging.info("Running GraphQL query (template=%s) into table '%s'.", self.cfg.query_template, output_table)
         raw_rows, _resolved = self.client.graphql(query, variables, rows_path)

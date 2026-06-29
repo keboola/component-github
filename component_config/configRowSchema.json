@@ -252,7 +252,7 @@
       "description": "Lower bound of the fetch window — only records at or after this are fetched.",
       "propertyOrder": 70,
       "options": {
-        "tooltip": "ISO-8601 instant (<code>2024-01-01T00:00:00Z</code>) or a relative phrase (<code>90 days ago</code>, <code>yesterday</code>). Applied on EVERY run — widen it to backfill. Empty = no lower bound (all history).",
+        "tooltip": "ISO-8601 instant (<code>2024-01-01T00:00:00Z</code>) or a relative phrase (<code>90 days ago</code>, <code>yesterday</code>). Applied on EVERY run — widen it to backfill. Empty = no lower bound (all history). For the GraphQL Query data source, write <code>{{since}}</code> in your query or variables to insert this resolved date (YYYY-MM-DD) at runtime — e.g. <code>updated:&gt;={{since}}</code> for a rolling window.",
         "dependencies": {
           "endpoint": [
             "user_repos",
@@ -263,7 +263,8 @@
             "repository_pulls",
             "repository_pull_reviews",
             "repository_pull_review_comments",
-            "repository_workflow_runs"
+            "repository_workflow_runs",
+            "graphql_query"
           ]
         }
       }
@@ -275,7 +276,7 @@
       "description": "Upper bound of the fetch window — only records at or before this are fetched.",
       "propertyOrder": 71,
       "options": {
-        "tooltip": "ISO-8601 instant or a relative phrase (<code>now</code>, <code>yesterday</code>). Empty = up to now. Together with Since this is a two-sided window (e.g. Since '90 days ago', Until 'now' = the last 90 days).",
+        "tooltip": "ISO-8601 instant or a relative phrase (<code>now</code>, <code>yesterday</code>). Empty = up to now. Together with Since this is a two-sided window (e.g. Since '90 days ago', Until 'now' = the last 90 days). For the GraphQL Query data source, write <code>{{until}}</code> in your query or variables to insert this resolved date (YYYY-MM-DD) at runtime.",
         "dependencies": {
           "endpoint": [
             "user_repos",
@@ -286,7 +287,8 @@
             "repository_pulls",
             "repository_pull_reviews",
             "repository_pull_review_comments",
-            "repository_workflow_runs"
+            "repository_workflow_runs",
+            "graphql_query"
           ]
         }
       }

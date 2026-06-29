@@ -49,6 +49,32 @@ def flatten_graphql_node(node: dict[str, Any], sep: str = "_") -> dict[str, Any]
     return out
 
 
+_DATE_PLACEHOLDER = re.compile(r"\{\{\s*(since|until)\s*\}\}")
+
+
+def apply_date_placeholders(text: str, since: str | None, until: str | None) -> str:
+    """Substitute ``{{since}}`` / ``{{until}}`` in a query/variable string with resolved date strings.
+
+    Lets a GraphQL row reuse the dateparser-backed ``since``/``until`` fields for a rolling window
+    (e.g. ``updated:>={{since}}`` with Since = "60 days ago"). No placeholder → returned unchanged. A
+    placeholder whose field is empty is a config error — raise a clean UserException rather than emit a
+    malformed query.
+    """
+
+    def _repl(match: re.Match[str]) -> str:
+        key = match.group(1)
+        value = since if key == "since" else until
+        if not value:
+            placeholder = "{{" + key + "}}"
+            raise UserException(
+                f"The GraphQL query references {placeholder} but the '{key.capitalize()}' field is empty — "
+                f"set {key.capitalize()} (e.g. '60 days ago') or remove the placeholder."
+            )
+        return value
+
+    return _DATE_PLACEHOLDER.sub(_repl, text)
+
+
 def collect_columns(rows: list[dict[str, Any]]) -> list[str]:
     """Union of all row keys, in first-seen order (stable column ordering for a given query)."""
     seen: list[str] = []

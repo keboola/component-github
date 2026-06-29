@@ -56,3 +56,6 @@ become a JSON-encoded cell.
   `organization.repositories.nodes`). Leave empty to auto-detect; set it only when the query returns more
   than one list.
 - **Primary key** — comma-separated result column name(s) for incremental upsert (empty = full load).
+- **Rolling window** — set **Since** / **Until** (relative phrases like `60 days ago` work) and reference
+  `{{since}}` / `{{until}}` in your query or variables; the component substitutes the resolved date
+  (`YYYY-MM-DD`) at runtime. Example variable: `{"q": "org:acme is:pr updated:>={{since}}"}`.

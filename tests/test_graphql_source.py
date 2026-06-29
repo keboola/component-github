@@ -5,6 +5,7 @@ from keboola.component.exceptions import UserException
 
 from graphql_source import (
     TEMPLATES,
+    apply_date_placeholders,
     collect_columns,
     connection_path,
     detect_rows_path,
@@ -12,6 +13,20 @@ from graphql_source import (
     read_path,
     sanitize_alias,
 )
+
+
+def test_apply_date_placeholders_substitutes_since_and_until():
+    out = apply_date_placeholders("updated:>={{since}} updated:<={{until}}", "2026-04-30", "2026-06-29")
+    assert out == "updated:>=2026-04-30 updated:<=2026-06-29"
+
+
+def test_apply_date_placeholders_no_placeholder_is_noop():
+    assert apply_date_placeholders("org:keboola is:pr", "2026-04-30", None) == "org:keboola is:pr"
+
+
+def test_apply_date_placeholders_missing_value_raises():
+    with pytest.raises(UserException, match="Since"):
+        apply_date_placeholders("updated:>={{since}}", None, None)
 
 
 def test_sanitize_alias():

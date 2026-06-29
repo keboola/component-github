@@ -148,6 +148,37 @@ def test_run_graphql_incremental_without_pk_falls_back_to_full(tmp_path):
     assert manifest["incremental"] is False
 
 
+def test_run_graphql_substitutes_since_placeholder(tmp_path):
+    import re as _re
+
+    comp = _component(
+        tmp_path,
+        {
+            **PAT,
+            "endpoint": "graphql_query",
+            "query_template": "custom",
+            "gql_query": "query($q:String!){ search(query:$q,type:ISSUE,first:1){ nodes{ ... on PullRequest { id } } } }",
+            "gql_variables": '{"q": "org:keboola is:pr updated:>={{since}}"}',
+            "gql_row_path": "search.nodes",
+            "output_table": "prs",
+            "primary_key": "id",
+            "since": "60 days ago",
+            "load_type": "full_load",
+        },
+    )
+    captured = {}
+
+    def _fake_graphql(query, variables, rows_path):
+        captured["variables"] = variables
+        return ([{"id": "x"}], rows_path)
+
+    comp.client.graphql = MagicMock(side_effect=_fake_graphql)
+    comp.run()
+    # {{since}} resolved to a concrete YYYY-MM-DD date before the query was sent
+    assert "{{since}}" not in captured["variables"]["q"]
+    assert _re.search(r"updated:>=\d{4}-\d{2}-\d{2}", captured["variables"]["q"])
+
+
 def test_run_graphql_primary_key_missing_column_raises(tmp_path):
     from keboola.component.exceptions import UserException
 
