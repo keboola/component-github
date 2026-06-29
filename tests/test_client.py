@@ -45,6 +45,44 @@ def test_array_two_page_link_traversal_stops_when_next_absent(client):
 
 
 @responses.activate
+def test_get_json_array_all_follows_link_pagination(client):
+    """Enumeration must concatenate ALL pages (an org with >100 repos must not lose targets)."""
+    page2 = "https://api.github.com/orgs/acme/repos?page=2"
+    responses.add(
+        responses.GET,
+        "https://api.github.com/orgs/acme/repos",
+        json=[{"full_name": "acme/a"}],
+        status=200,
+        headers={"Link": f'<{page2}>; rel="next"'},
+        match=[responses.matchers.query_param_matcher({"per_page": "100"})],
+    )
+    responses.add(
+        responses.GET,
+        "https://api.github.com/orgs/acme/repos",
+        json=[{"full_name": "acme/b"}],
+        status=200,
+        match=[responses.matchers.query_param_matcher({"page": "2"})],
+    )
+    result = client.get_json_array_all("/orgs/acme/repos", params={"per_page": "100"})
+    assert [r["full_name"] for r in result] == ["acme/a", "acme/b"]
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_get_json_array_single_page_does_not_paginate(client):
+    """The single-page get_json_array variant returns just the first page."""
+    responses.add(
+        responses.GET,
+        "https://api.github.com/x",
+        json=[{"id": 1}],
+        status=200,
+        headers={"Link": '<https://api.github.com/x?page=2>; rel="next"'},
+    )
+    assert client.get_json_array("/x") == [{"id": 1}]
+    assert len(responses.calls) == 1
+
+
+@responses.activate
 def test_wrapped_envelope_yields_inner_array_not_total_count(client):
     responses.add(
         responses.GET,

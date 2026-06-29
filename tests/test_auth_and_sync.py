@@ -198,10 +198,10 @@ def test_test_connection_network_error_raises_userexception(tmp_path):
 
 
 @responses.activate
-def test_list_organizations_network_error_userexception_via_private_helper(tmp_path):
+def test_list_organizations_network_error_userexception_via_enumeration(tmp_path):
     """A connection error during a dropdown loader is a clean UserException (asserted pre-wrapper).
 
-    Calling the private _fetch_json_array shows the underlying raise is UserException with the
+    Calling the paginating enumeration helper shows the underlying raise is UserException with the
     network-guard message — i.e. it maps to exit 1, never escaping uncaught to exit 2.
     """
     responses.add(
@@ -211,7 +211,7 @@ def test_list_organizations_network_error_userexception_via_private_helper(tmp_p
     )
     comp = _component(_datadir(tmp_path, _SYNC_CONFIG), patch_client=False)
     with pytest.raises(UserException, match="Could not reach GitHub"):
-        comp._fetch_json_array("/user/orgs")
+        comp._list_org_logins()
 
 
 @responses.activate

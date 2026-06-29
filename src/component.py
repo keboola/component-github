@@ -11,7 +11,7 @@ flattens to the declared schema, writes a headerless typed CSV + manifest, and a
 import csv
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from keboola.component.base import ComponentBase, sync_action
@@ -22,10 +22,16 @@ from keboola.component.sync_actions import SelectElement
 from client import GitHubClient
 from configuration import AuthType, Configuration
 from credentials import resolve_token
-from endpoints import ENDPOINTS, Endpoint, Target, expand_records, flatten_record, output_columns
-
-STATE_LAST_RUN = "last_run"  # legacy single-watermark key (read-only, for migration)
-STATE_TARGETS = "targets"  # per-target watermark map: {target_key: iso_instant}
+from endpoints import (
+    ENDPOINTS,
+    Endpoint,
+    Target,
+    _dig,
+    expand_records,
+    flatten_record,
+    output_columns,
+    record_in_window,
+)
 
 
 def _redact_authorization(request: Any) -> Any:
@@ -88,47 +94,48 @@ class Component(ComponentBase):
 
     # ----------------------------------------------------------------------------- run
     def run(self) -> None:
-        """Fan out over every resolved target into one table, advancing per-target watermarks.
+        """Fan out over every resolved target into one table, fetching the ``[since, until]`` window.
 
-        A row's target fields are multi-select with empty = "all in scope" (§4). ``_resolve_targets``
-        turns them into a list of concrete context dicts; each is fetched and merged into one output
-        table. A single inaccessible target (404 / not-found) is skipped with a warning so an
-        "all" run is not derailed by one bad repo; token/rate-limit errors still abort.
+        A row's target fields are multi-select with empty = "all in scope" (§4); ``_resolve_targets``
+        turns them into concrete context dicts, each fetched and merged into one output table. The
+        fetch window is the explicit ``since``/``until`` config — there is NO hidden watermark/state,
+        so widening ``since`` backfills (it always applies). A single inaccessible target (404) is
+        skipped with a warning; token/rate-limit errors still abort.
         """
         endpoint = self._endpoint()
         incremental = self._incremental(endpoint)
-        run_started_at = datetime.now(UTC).isoformat()
-        state = self.get_state_file() or {}
+        since, until = self.cfg.parsed_since(), self.cfg.parsed_until()
 
         targets = self._resolve_targets(endpoint)
-        logging.info("Fanning out over %d target(s) for '%s'.", len(targets), endpoint.name)
+        logging.info(
+            "Fanning out over %d target(s) for '%s'%s.",
+            len(targets),
+            endpoint.name,
+            self._window_label(since, until),
+        )
 
         all_rows: list[dict[str, Any]] = []
-        succeeded: list[str] = []
         for context in targets:
-            key = self._target_key(endpoint, context)
-            since = self._since(key, state) if incremental else self._full_load_since()
             try:
-                all_rows.extend(self._fetch_target(endpoint, context, since))
+                all_rows.extend(self._fetch_target(endpoint, context, since, until))
             except UserException as exc:
                 if self._fans_out(endpoint) and self._is_single_target_access_error(exc):
-                    logging.warning("Skipping target '%s': %s", key or "(default)", exc)
+                    logging.warning("Skipping target '%s': %s", self._target_label(context) or "(default)", exc)
                     continue
                 raise
-            succeeded.append(key)
 
         self._write_table(endpoint, all_rows, incremental)
-        if incremental:
-            self._advance_state(state, succeeded, run_started_at)
 
-    def _fetch_target(self, endpoint: Endpoint, context: dict[str, str], since: str | None) -> list[dict[str, Any]]:
+    def _fetch_target(
+        self, endpoint: Endpoint, context: dict[str, str], since: datetime | None, until: datetime | None
+    ) -> list[dict[str, Any]]:
         """Fetch one concrete target's rows (the nested PR scan for empty-pull_number reviews)."""
         if endpoint.name == "repository_pull_reviews" and self.cfg.pull_number is None:
-            return self._fetch_pull_reviews_nested(context, since)
+            return self._fetch_pull_reviews_nested(context, since, until)
         enriched = self._with_pull_number(context)
         path = self._build_path(endpoint, enriched)
         params, stop_paging = self._fetch_params(endpoint, since)
-        return self._collect_rows(endpoint, path, enriched, params, stop_paging)
+        return self._collect_rows(endpoint, path, enriched, params, stop_paging, since, until)
 
     # ------------------------------------------------------------------- run() helpers
     def _incremental(self, endpoint: Endpoint) -> bool:
@@ -228,13 +235,18 @@ class Component(ComponentBase):
         return {"owner": owner, "repo": repo, "repository": full_name}
 
     @staticmethod
-    def _target_key(endpoint: Endpoint, context: dict[str, str]) -> str:
-        """Stable per-target state key (the watermark map key)."""
-        if endpoint.target in (Target.OWNER_REPO, Target.OWNER_REPO_PULL):
-            return context.get("repository", "")
-        if endpoint.target == Target.ORG_TEAM:
-            return f"{context.get('org', '')}/{context.get('team_slug', '')}"
-        return context.get("org", "")
+    def _target_label(context: dict[str, str]) -> str:
+        """Human label for a target, used only in the skip warning."""
+        return context.get("repository") or context.get("team_slug") or context.get("org") or ""
+
+    @staticmethod
+    def _window_label(since: datetime | None, until: datetime | None) -> str:
+        """Render the fetch window for the run log (empty when fully unbounded)."""
+        if since is None and until is None:
+            return ""
+        lo = since.isoformat() if since else "beginning"
+        hi = until.isoformat() if until else "now"
+        return f" (window {lo} .. {hi})"
 
     def _fans_out(self, endpoint: Endpoint) -> bool:
         """True when the row targets more than one concrete resource (so one bad target is skippable)."""
@@ -254,8 +266,10 @@ class Component(ComponentBase):
             return {**context, "pull_number": str(self.cfg.pull_number)}
         return context
 
-    def _fetch_pull_reviews_nested(self, context: dict[str, str], since: str | None) -> list[dict[str, Any]]:
-        """repo -> list its PRs (sorted updated desc, bounded by ``since``) -> each PR's reviews."""
+    def _fetch_pull_reviews_nested(
+        self, context: dict[str, str], since: datetime | None, until: datetime | None
+    ) -> list[dict[str, Any]]:
+        """repo -> list its PRs (sorted updated desc, bounded by the window) -> each PR's reviews."""
         reviews_ep = ENDPOINTS["repository_pull_reviews"]
         pulls_ep = ENDPOINTS["repository_pulls"]
         owner, repo = context["owner"], context["repo"]
@@ -263,6 +277,8 @@ class Component(ComponentBase):
         pulls_params, pulls_stop = self._fetch_params(pulls_ep, since)
         rows: list[dict[str, Any]] = []
         for pr in self.client.fetch(pulls_ep, pulls_path, pulls_params, stop_paging=pulls_stop):
+            if not record_in_window(pulls_ep, pr, since, until):
+                continue  # PR outside the window — skip its reviews
             number = pr.get("number")
             if number is None:
                 continue
@@ -272,64 +288,38 @@ class Component(ComponentBase):
                 rows.append(flatten_record(reviews_ep, payload, pr_context))
         return rows
 
-    def _since(self, key: str, state: dict[str, Any]) -> str | None:
-        """Incremental lower bound for one target: per-target watermark, then legacy ``last_run``,
-        then the row's parsed ``Fetch Since`` (relative phrases resolved). ``None`` = full history.
-
-        The legacy fallback migrates rows whose state predates per-target watermarks: their single
-        ``last_run`` seeds every target on the first per-target run, so no history is re-fetched.
-        """
-        targets = state.get(STATE_TARGETS) or {}
-        return targets.get(key) or state.get(STATE_LAST_RUN) or self.cfg.parsed_initial_since()
-
-    def _full_load_since(self) -> str | None:
-        """Full Load honours ``Fetch Since`` on EVERY run (rolling window); no watermark, no state."""
-        return self.cfg.parsed_initial_since()
-
-    def _advance_state(self, state: dict[str, Any], succeeded: list[str], run_started_at: str) -> None:
-        """Set each successfully-fetched target's watermark to this run's start; leave others as-is."""
-        targets = dict(state.get(STATE_TARGETS) or {})
-        for key in succeeded:
-            targets[key] = run_started_at
-        self.write_state_file({STATE_TARGETS: targets})
-
     def _fetch_params(
-        self, endpoint: Endpoint, since: str | None
+        self, endpoint: Endpoint, since: datetime | None
     ) -> tuple[dict[str, Any], Callable[[dict[str, Any]], bool] | None]:
-        """Build query params + the optional client-side stop-paging predicate."""
+        """Build query params + the optional client-side stop-paging predicate.
+
+        The ``since`` lower bound is pushed to GitHub server-side where the endpoint supports it
+        (``incremental_param`` — e.g. /commits ``since``, /actions/runs ``created``), or enforced by
+        sorting ``updated`` desc and stopping once a page crosses ``since`` (``incremental_sort``).
+        The ``until`` upper bound is applied client-side in ``_collect_rows`` (``record_in_window``).
+        """
         params: dict[str, Any] = dict(endpoint.default_params)
         for row_field, query_param in endpoint.filter_params.items():
             params[query_param] = getattr(self.cfg, row_field)
 
         stop_paging = None
-        if since and endpoint.incremental_param:
-            # The watermark is rendered per-endpoint: most `since` params take a bare ISO instant,
-            # but /actions/runs `created` needs date-range grammar (>=YYYY-MM-DD) — see endpoints.
-            params[endpoint.incremental_param] = endpoint.incremental_param_format(since)
-        elif since and endpoint.incremental_sort:
-            # No server `since` (e.g. /pulls) — sort desc and stop once we cross the watermark.
-            stop_paging = self._stop_paging_predicate(since)
+        if since is not None and endpoint.incremental_param:
+            params[endpoint.incremental_param] = endpoint.incremental_param_format(since.isoformat())
+        elif since is not None and endpoint.incremental_sort:
+            stop_paging = self._stop_paging_predicate(endpoint, since)
         return params, stop_paging
 
     @staticmethod
-    def _stop_paging_predicate(since: str) -> Callable[[dict[str, Any]], bool]:
-        # `since` is normally pre-validated (Configuration._validate_initial_since) or our own
-        # ISO `last_run` watermark, but guard the build-time parse too: a malformed watermark
-        # (e.g. a hand-edited state file) must surface as a clean UserException (exit 1), never an
-        # uncaught ValueError (exit 2).
-        try:
-            watermark = datetime.fromisoformat(since.replace("Z", "+00:00"))
-        except ValueError as exc:
-            raise UserException(
-                "Incremental watermark must be an ISO-8601 timestamp, e.g. 2024-01-31T00:00:00Z"
-            ) from exc
+    def _stop_paging_predicate(endpoint: Endpoint, since: datetime) -> Callable[[dict[str, Any]], bool]:
+        """Stop paging a ``sort=updated desc`` endpoint once a page's last record predates ``since``."""
+        field = endpoint.time_field or "updated_at"
 
         def stop(last_record: dict[str, Any]) -> bool:
-            updated = last_record.get("updated_at")
-            if not isinstance(updated, str):
+            raw = _dig(last_record, field)
+            if not isinstance(raw, str):
                 return False
             try:
-                return datetime.fromisoformat(updated.replace("Z", "+00:00")) < watermark
+                return datetime.fromisoformat(raw.replace("Z", "+00:00")) < since
             except ValueError:
                 return False
 
@@ -342,13 +332,17 @@ class Component(ComponentBase):
         context: dict[str, str],
         params: dict[str, Any],
         stop_paging: Callable[[dict[str, Any]], bool] | None,
+        since: datetime | None,
+        until: datetime | None,
     ) -> list[dict[str, Any]]:
-        """Fetch, expand object-maps, drop PR rows, and flatten to the declared columns."""
+        """Fetch, expand object-maps, drop PR rows, apply the [since, until] window, and flatten."""
         rows: list[dict[str, Any]] = []
         for payload in self.client.fetch(endpoint, path, params, stop_paging=stop_paging):
             for record in expand_records(endpoint, payload, context):
                 if endpoint.drop_predicate and record.get(endpoint.drop_predicate) is not None:
                     continue  # /issues PR-split: drop pull-request rows (§4.4)
+                if not record_in_window(endpoint, record, since, until):
+                    continue  # outside the explicit fetch window
                 rows.append(flatten_record(endpoint, record, context))
         return rows
 
@@ -404,7 +398,7 @@ class Component(ComponentBase):
         if not self.cfg.organization:
             raise UserException("Select an organization before loading teams.")
         org = self.cfg.organization[0]
-        teams = self._fetch_json_array(f"/orgs/{org}/teams", params={"per_page": "100"})
+        teams = self.client.get_json_array_all(f"/orgs/{org}/teams", params={"per_page": "100"})
         # Value is the qualified ``org/team_slug`` (self-contained across multiple selected orgs).
         return [
             SelectElement(value=f"{org}/{slug}", label=f"{org} / {team.get('name') or slug}")
@@ -413,31 +407,25 @@ class Component(ComponentBase):
         ]
 
     # --------------------------------------------- shared enumeration (sync actions + run fan-out)
+    # These paginate (get_json_array_all): the fan-out target list MUST cover every repo/team/org,
+    # not just the first page, or an org with >100 repos silently loses every target past 100.
     def _list_org_logins(self) -> list[str]:
-        return [login for o in self._fetch_json_array("/user/orgs") if (login := o.get("login"))]
+        orgs = self.client.get_json_array_all("/user/orgs", params={"per_page": "100"})
+        return [login for o in orgs if (login := o.get("login"))]
 
     def _list_repo_fullnames(self, org: str) -> list[str]:
         path = f"/orgs/{org}/repos" if org else "/user/repos"
-        repos = self._fetch_json_array(path, params={"per_page": "100"})
+        repos = self.client.get_json_array_all(path, params={"per_page": "100"})
         return [name for r in repos if (name := r.get("full_name"))]
 
     def _list_team_slugs(self, org: str) -> list[str]:
-        teams = self._fetch_json_array(f"/orgs/{org}/teams", params={"per_page": "100"})
+        teams = self.client.get_json_array_all(f"/orgs/{org}/teams", params={"per_page": "100"})
         return [slug for t in teams if (slug := t.get("slug"))]
 
     # ------------------------------------------------------------- sync-action helpers
     def _call_rate_limit(self) -> None:
         """Single guarded GET /rate_limit; the client classifies status (401/404/rate-limit/network)."""
         self.client.get_response("/rate_limit")
-
-    def _fetch_json_array(self, path: str, params: dict[str, str] | None = None) -> list[dict[str, Any]]:
-        """Guarded GET for the dropdown loaders.
-
-        Status routing (401 token / 404 not-found / rate-limit / network) is handled inside the
-        client by the SAME classifier the run path uses, so a rate-limited dropdown no longer reads
-        as a token problem — it surfaces the shared rate-limit message.
-        """
-        return self.client.get_json_array(path, params)
 
 
 if __name__ == "__main__":

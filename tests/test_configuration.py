@@ -30,33 +30,38 @@ def test_invalid_state_enum_raises_with_validation_prefix():
         Configuration(auth_type="pat", issue_state="bogus", **{"#github_token": "ghp_x"})
 
 
-def test_unparseable_initial_since_raises():
-    """A value that is neither ISO nor a relative phrase is rejected (clean exit 1)."""
-    with pytest.raises(UserException, match="ISO-8601 or a relative phrase"):
-        Configuration(auth_type="pat", initial_since="qwerty", **{"#github_token": "ghp_x"})
+def test_unparseable_since_raises():
+    """A Since that is neither ISO nor a relative phrase is rejected (clean exit 1)."""
+    with pytest.raises(UserException, match="Since must be ISO-8601 or a relative phrase"):
+        Configuration(auth_type="pat", since="qwerty", **{"#github_token": "ghp_x"})
 
 
-def test_valid_initial_since_with_trailing_z_accepted():
-    """A well-formed ISO instant with a trailing Z is accepted and resolves to that instant."""
-    cfg = Configuration(auth_type="pat", initial_since="2024-01-31T00:00:00Z", **{"#github_token": "ghp_x"})
-    assert cfg.initial_since == "2024-01-31T00:00:00Z"
-    parsed = cfg.parsed_initial_since()
-    assert parsed is not None and parsed.startswith("2024-01-31T00:00:00")
+def test_unparseable_until_raises():
+    """A bad Until is rejected too."""
+    with pytest.raises(UserException, match="Until must be ISO-8601 or a relative phrase"):
+        Configuration(auth_type="pat", until="not a date", **{"#github_token": "ghp_x"})
 
 
-def test_empty_initial_since_is_allowed():
-    """Empty initial_since stays empty (full history on the first run) — parses to None."""
-    cfg = Configuration(auth_type="pat", initial_since="", **{"#github_token": "ghp_x"})
-    assert cfg.initial_since == ""
-    assert cfg.parsed_initial_since() is None
+def test_valid_iso_since_parses_to_datetime():
+    """A well-formed ISO instant resolves to a tz-aware datetime."""
+    cfg = Configuration(auth_type="pat", since="2024-01-31T00:00:00Z", **{"#github_token": "ghp_x"})
+    assert cfg.since == "2024-01-31T00:00:00Z"
+    parsed = cfg.parsed_since()
+    assert parsed is not None and parsed.isoformat().startswith("2024-01-31T00:00:00")
 
 
-def test_relative_initial_since_parses_to_instant():
-    """A relative phrase ('5 days ago') is valid and resolves to an absolute tz-aware instant."""
-    cfg = Configuration(auth_type="pat", initial_since="5 days ago", **{"#github_token": "ghp_x"})
-    assert cfg.initial_since == "5 days ago"  # raw value preserved for the form
-    parsed = cfg.parsed_initial_since()
-    assert parsed is not None and ("+00:00" in parsed or parsed.endswith("Z"))
+def test_empty_window_parses_to_none():
+    """Empty since/until parse to None (unbounded that end)."""
+    cfg = Configuration(auth_type="pat", **{"#github_token": "ghp_x"})
+    assert cfg.parsed_since() is None and cfg.parsed_until() is None
+
+
+def test_relative_window_parses_to_instants():
+    """Relative phrases ('90 days ago', 'now') resolve to absolute tz-aware datetimes."""
+    cfg = Configuration(auth_type="pat", since="90 days ago", until="now", **{"#github_token": "ghp_x"})
+    s, u = cfg.parsed_since(), cfg.parsed_until()
+    assert s is not None and u is not None and s < u
+    assert s.tzinfo is not None and u.tzinfo is not None
 
 
 # --------------------------------------------------- multi-select targets (string back-compat)

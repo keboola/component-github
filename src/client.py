@@ -146,11 +146,14 @@ class GitHubClient:
         points share identical messaging. Sync actions don't retry, so a rate-limit raises a clean
         UserException here rather than the internal ``_RetryableError``.
         """
-        url = f"{self.base_url}{path}"
+        return self._guarded_get(f"{self.base_url}{path}", params)
+
+    def _guarded_get(self, url: str, params: dict[str, str] | None = None) -> requests.Response:
+        """One guarded GET of a full URL: network-guarded + status-classified, no retry."""
         try:
             response = self.session.get(url, params=params, timeout=DEFAULT_TIMEOUT)
         except requests.RequestException as exc:
-            raise UserException(f"Could not reach GitHub at {path} ({exc}). Check connectivity and try again.") from exc
+            raise UserException(f"Could not reach GitHub at {url} ({exc}). Check connectivity and try again.") from exc
         self._classify_response(response, retryable=False)
         return response
 
@@ -160,10 +163,32 @@ class GitHubClient:
         Wraps :meth:`get_response` (so the network guard AND status classification apply), then
         parses the body safely. A 401/404/rate-limit has already been turned into a clean
         :class:`UserException` by :meth:`_classify_response`, so reaching the parse means a 2xx.
+        SINGLE page only — for enumeration that may exceed one page use :meth:`get_json_array_all`.
         """
         response = self.get_response(path, params)
         body = self._parse_json(response)
         return body if isinstance(body, list) else []
+
+    def get_json_array_all(self, path: str, params: dict[str, str] | None = None) -> list[dict[str, Any]]:
+        """Like :meth:`get_json_array` but follows ``Link`` pagination — returns ALL pages.
+
+        Enumeration (the sync-action dropdowns AND the run-path fan-out target lists) must not cap at
+        one page: an org with >100 repos/teams would otherwise silently lose every target past the
+        first 100 (the per-page max). Same single-request guard + status classification per page as
+        :meth:`get_response`; query params apply to the first request only (the ``Link`` URL already
+        carries the cursor), mirroring :meth:`fetch`.
+        """
+        url: str | None = f"{self.base_url}{path}"
+        records: list[dict[str, Any]] = []
+        first = True
+        while url:
+            response = self._guarded_get(url, params if first else None)
+            first = False
+            body = self._parse_json(response)
+            if isinstance(body, list):
+                records.extend(body)
+            url = self._next_link(response)
+        return records
 
     @staticmethod
     def _unwrap(endpoint: Endpoint, payload: Any) -> list[dict[str, Any]]:

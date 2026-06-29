@@ -176,15 +176,15 @@ def test_org_envelope_members(tmp_path):
     assert "org" in header
 
 
-def test_incremental_writes_per_target_watermark(tmp_path):
+def test_incremental_endpoint_writes_upsert_manifest_and_no_state(tmp_path):
+    """incremental_load → upsert manifest; the windowing model writes NO state file."""
     params = {**PAT, "endpoint": "repository_issues", "repository": "octocat/Hello", "load_type": "incremental_load"}
-    state = {"last_run": "2024-01-01T00:00:00+00:00"}
     payload = [{"id": 5, "number": 5, "title": "x", "user": {"login": "a", "id": 1}}]
-    data_dir = _make_component(tmp_path, params, payload, state=state)
-    rows, manifest = _read_table(data_dir, "repository_issues")
+    data_dir = _make_component(tmp_path, params, payload)
+    _rows, manifest = _read_table(data_dir, "repository_issues")
     assert manifest["incremental"] is True
-    new_state = json.loads((data_dir / "out" / "state.json").read_text())
-    assert new_state["targets"]["octocat/Hello"] != ""
+    state_file = data_dir / "out" / "state.json"
+    assert not state_file.exists() or json.loads(state_file.read_text()) == {}
 
 
 def test_non_incremental_endpoint_forces_full_load(tmp_path):
@@ -246,45 +246,39 @@ def test_empty_repository_means_all_no_longer_raises(tmp_path):
 
         with mock.patch("component.GitHubClient"):
             comp = Component()
-        comp.client.get_json_array.return_value = []  # ty: ignore[unresolved-attribute]  # no repos in scope
+        comp.client.get_json_array_all.return_value = []  # ty: ignore[unresolved-attribute]  # no repos in scope
         comp.client.fetch.return_value = iter([])  # ty: ignore[unresolved-attribute]
         comp.run()  # must not raise
     rows, _manifest = _read_table(data_dir, "repository_issues")
     assert rows == []
 
 
-# --------------------------------------------------- incremental watermark param formatting (TODO 2)
+# --------------------------------------------------- since/until window -> server params
 
 
-def test_workflow_runs_incremental_created_filter_uses_date_range(tmp_path):
-    """repository_workflow_runs incremental must send `created=>=YYYY-MM-DD`, not a bare instant.
-
-    GitHub's /actions/runs `created` filter wants date-range grammar; injecting the raw ISO
-    watermark silently under-fetches. The per-param formatter maps the watermark to >= + the date.
-    """
+def test_workflow_runs_since_uses_created_date_range(tmp_path):
+    """repository_workflow_runs sends `created=>=YYYY-MM-DD` (date-range grammar) from `since`."""
     params = {
         **PAT,
         "endpoint": "repository_workflow_runs",
         "repository": "octocat/Hello",
-        "load_type": "incremental_load",
+        "since": "2024-03-15T08:30:00Z",
     }
-    state = {"last_run": "2024-03-15T08:30:00+00:00"}
     payload = [{"id": 1, "name": "CI", "status": "completed"}]
-    _data_dir, comp = _run_component(tmp_path, params, payload, state=state)
+    _data_dir, comp = _run_component(tmp_path, params, payload)
     assert _fetch_params(comp)["created"] == ">=2024-03-15"
 
 
-def test_commits_incremental_since_passes_iso_instant_verbatim(tmp_path):
-    """A plain `since` endpoint still injects the raw ISO watermark (default formatter unchanged)."""
+def test_commits_since_passes_iso_instant(tmp_path):
+    """A plain `since` endpoint injects the resolved ISO instant as the server `since` param."""
     params = {
         **PAT,
         "endpoint": "repository_commits",
         "repository": "octocat/Hello",
-        "load_type": "incremental_load",
+        "since": "2024-03-15T08:30:00Z",
     }
-    state = {"last_run": "2024-03-15T08:30:00+00:00"}
     payload = [{"sha": "abc"}]
-    _data_dir, comp = _run_component(tmp_path, params, payload, state=state)
+    _data_dir, comp = _run_component(tmp_path, params, payload)
     assert _fetch_params(comp)["since"] == "2024-03-15T08:30:00+00:00"
 
 
@@ -330,29 +324,45 @@ def test_fanout_two_repos_into_one_table(tmp_path):
     assert sorted(r[repo_idx] for r in rows) == ["a/x", "a/y"]
 
 
-def test_full_load_applies_fetch_since_every_run(tmp_path):
+def test_since_applies_in_full_load_too(tmp_path):
+    """`since` bounds the fetch in full_load as well (it's the window, not a first-run-only floor)."""
     params = {
         **PAT,
         "endpoint": "repository_commits",
         "repository": ["a/x"],
         "load_type": "full_load",
-        "initial_since": "2024-01-01T00:00:00Z",
+        "since": "2024-01-01T00:00:00Z",
     }
     _data_dir, comp = _run_component(tmp_path, params, [{"sha": "s1"}])
     assert _fetch_params(comp)["since"] == "2024-01-01T00:00:00+00:00"
 
 
-def test_per_target_watermark_written(tmp_path):
+def test_no_state_file_written(tmp_path):
+    """The windowing model is stateless — an incremental run writes no watermark/state."""
     params = {**PAT, "endpoint": "repository_commits", "repository": ["a/x"], "load_type": "incremental_load"}
     data_dir, _comp = _run_component(tmp_path, params, [{"sha": "s1"}])
-    state = json.loads((data_dir / "out" / "state.json").read_text())
-    assert "a/x" in state["targets"]
+    state_file = data_dir / "out" / "state.json"
+    assert not state_file.exists() or json.loads(state_file.read_text()) == {}
 
 
-def test_legacy_last_run_state_seeds_target_since(tmp_path):
-    params = {**PAT, "endpoint": "repository_commits", "repository": ["a/x"], "load_type": "incremental_load"}
-    _data_dir, comp = _run_component(tmp_path, params, [{"sha": "s1"}], state={"last_run": "2024-05-01T00:00:00+00:00"})
-    assert _fetch_params(comp)["since"] == "2024-05-01T00:00:00+00:00"
+def test_until_drops_records_past_upper_bound(tmp_path):
+    """`until` is enforced client-side: records whose time_field is after Until are dropped."""
+    params = {
+        **PAT,
+        "endpoint": "repository_commits",
+        "repository": ["a/x"],
+        "since": "2024-01-01T00:00:00Z",
+        "until": "2024-06-01T00:00:00Z",
+    }
+    payload = [
+        {"sha": "in", "commit": {"author": {"date": "2024-03-01T00:00:00Z"}}},
+        {"sha": "past", "commit": {"author": {"date": "2024-09-01T00:00:00Z"}}},  # after until -> dropped
+    ]
+    data_dir, _comp = _run_component(tmp_path, params, payload)
+    rows, manifest = _read_table(data_dir, "repository_commits")
+    header = [c["name"] for c in manifest["schema"]]
+    sha_idx = header.index("sha")
+    assert sorted(r[sha_idx] for r in rows) == ["in"]
 
 
 def test_pull_reviews_nested_fanout_over_prs(tmp_path):

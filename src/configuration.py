@@ -22,12 +22,12 @@ from endpoints import ENDPOINTS
 _DATEPARSER_SETTINGS = {"RETURN_AS_TIMEZONE_AWARE": True, "TIMEZONE": "UTC"}
 
 
-def _parse_since(value: str) -> datetime | None:
-    """Parse an ISO-8601 or relative ('5 days ago') string to a tz-aware datetime, else None.
+def _parse_date(value: str) -> datetime | None:
+    """Parse an ISO-8601 or relative ('5 days ago', 'now') string to a tz-aware datetime, else None.
 
-    dateparser handles both absolute ISO instants and relative phrases, so it is the single
-    parser for the user-facing ``Fetch Since`` field. Returns ``None`` for an empty or
-    unparseable value (the caller decides whether that is an error or "no lower bound").
+    dateparser handles both absolute ISO instants and relative phrases, so it is the single parser
+    for the user-facing ``Since`` / ``Until`` window fields. Returns ``None`` for an empty or
+    unparseable value (the caller decides whether that is an error or "no bound").
     """
     if not value:
         return None
@@ -81,7 +81,11 @@ class Configuration(BaseModel):
     repository: list[str] = Field(default_factory=list)
     pull_number: int | None = None
     load_type: LoadType = LoadType.incremental_load
-    initial_since: str = ""
+    # Explicit fetch window. Each run pulls records whose timestamp is in [since, until] — no hidden
+    # watermark/state. Both accept ISO or relative phrases ("90 days ago", "now"). Empty since = no
+    # lower bound (all history); empty until = up to now. Widen `since` to backfill — it always applies.
+    since: str = ""
+    until: str = ""
     issue_state: State = State.all
     pull_state: State = State.all
     milestone_state: State = State.all
@@ -142,25 +146,25 @@ class Configuration(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _validate_initial_since(self) -> Self:
-        # `Fetch Since` is free-text from the UI and is fed downstream as the incremental lower
-        # bound (server-side `since`/`created` params + the stop-paging watermark). It accepts ISO
-        # instants AND relative phrases ("5 days ago"); reject anything else here so a real typo is
-        # a clean exit 1, not an uncaught error (exit 2) at fetch time. Empty = full history.
-        if self.initial_since and _parse_since(self.initial_since) is None:
-            raise UserException(
-                "Fetch Since must be ISO-8601 or a relative phrase (e.g. '2024-01-31T00:00:00Z' or '5 days ago')."
-            )
+    def _validate_dates(self) -> Self:
+        # `since`/`until` are free-text from the UI, fed downstream as the fetch-window bounds
+        # (server-side `since`/`created` + a client-side window filter). Accept ISO instants AND
+        # relative phrases ("90 days ago", "now"); reject anything else here so a typo is a clean
+        # exit 1, not an uncaught error (exit 2) at fetch time. Empty since/until = unbounded that end.
+        for label, value in (("Since", self.since), ("Until", self.until)):
+            if value and _parse_date(value) is None:
+                raise UserException(
+                    f"{label} must be ISO-8601 or a relative phrase (e.g. '2024-01-31T00:00:00Z' or '90 days ago')."
+                )
         return self
 
-    def parsed_initial_since(self) -> str | None:
-        """The absolute ISO-8601 instant for ``initial_since`` (relative phrases resolved), or None.
+    def parsed_since(self) -> datetime | None:
+        """The window lower bound as a tz-aware datetime (relative phrases resolved), or None."""
+        return _parse_date(self.since)
 
-        Relative phrases are resolved at call time so a Full Load row with ``Fetch Since`` set to a
-        relative value ("10 days ago") becomes a rolling window — each run recomputes the instant.
-        """
-        parsed = _parse_since(self.initial_since)
-        return parsed.isoformat() if parsed else None
+    def parsed_until(self) -> datetime | None:
+        """The window upper bound as a tz-aware datetime (relative phrases resolved), or None."""
+        return _parse_date(self.until)
 
     def __init__(self, **data: Any):
         try:

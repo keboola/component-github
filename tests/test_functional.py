@@ -53,17 +53,16 @@ def _seeded_state(case_dir: Path) -> dict | None:
     return content or None
 
 
-# Incremental cases write a new ``last_run`` watermark to out/state.json; the datadirtest file
-# comparison only diffs out/tables + out/files, so the watermark is asserted here directly. The
-# fact that the cassette URI carries ``since`` is already enforced by VCR query matching on replay
-# (a request without ``since`` would fail to match the recorded interaction).
-_INCREMENTAL_CASES = {"06_run_issues_incremental_seeded", "07_run_issues_incremental_firstrun"}
-
-
 @pytest.mark.skipif(not _CASES, reason="no functional cassettes present")
 @pytest.mark.parametrize("case", _CASES)
 def test_functional_case(case: str) -> None:
-    """Replay one functional case and assert output / exit code / sync-action result match."""
+    """Replay one functional case and assert output / exit code / sync-action result match.
+
+    The fetch window is stateless: a row sends GitHub's ``since`` (and stop-pages) from the explicit
+    ``since`` config, enforced on replay by VCR query matching — a request whose ``since`` differs
+    from the recorded one fails to match the cassette. So the windowed cases need no extra assertion
+    beyond the output diff.
+    """
     case_dir = _FUNCTIONAL_DIR / case
     test = VCRTestDataDir(
         data_dir=str(case_dir),
@@ -76,14 +75,5 @@ def test_functional_case(case: str) -> None:
     test.setUp()
     try:
         test.compare_source_and_expected()
-        if case in _INCREMENTAL_CASES:
-            test._collect_result_state()
-            # State is now a per-target watermark map: {"targets": {<repo>: <iso>}}.
-            watermarks = [v for v in (test.result_state.get("targets") or {}).values() if v]
-            assert watermarks, f"{case}: incremental run must write a non-empty per-target watermark"
-            seeded = _seeded_state(case_dir) or {}
-            assert all(w != seeded.get("last_run") for w in watermarks), (
-                f"{case}: watermark must advance to the run start, not echo the seeded watermark"
-            )
     finally:
         test.tearDown()

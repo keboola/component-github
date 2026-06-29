@@ -12,6 +12,7 @@ See spec §4.1 (catalog), §4.5 (response shapes), §6.3 (registry shape), §6.5
 import json
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum, auto
 from typing import Any
 
@@ -98,11 +99,14 @@ class Endpoint:
     envelope: Envelope
     schema: list[ColumnDef]
     envelope_key: str | None = None  # the inner array key when envelope == WRAPPED
-    incremental_param: str | None = None  # server-side "changed since" query param (e.g. "since")
-    # How the stored watermark is rendered into incremental_param (defaults to a bare ISO instant;
+    incremental_param: str | None = None  # server-side lower-bound query param (e.g. "since")
+    # How the `since` lower bound is rendered into incremental_param (defaults to a bare ISO instant;
     # /actions/runs `created` needs date-range grammar — see _created_date_range).
     incremental_param_format: Callable[[str], str] = _iso_since
     incremental_sort: bool = False  # sort=updated&direction=desc + client-side stop-paging
+    # The record field carrying the row's timestamp, used for the client-side fetch-window filter
+    # ([since, until]) and stop-paging. Dotted path (e.g. "commit.author.date"). None = not windowable.
+    time_field: str | None = None
     default_params: dict[str, str] = field(default_factory=lambda: {"per_page": "100"})
     filter_params: dict[str, str] = field(default_factory=dict)  # row field -> query param name
     drop_predicate: str | None = None  # drop records carrying this top-level key (issues PR-split)
@@ -227,6 +231,7 @@ _register(
         primary_key=["id"],
         envelope=Envelope.ARRAY,
         incremental_sort=True,
+        time_field="updated_at",
         default_params={"per_page": "100", "sort": "updated", "direction": "desc"},
         schema=_repo_object_cols(),
     )
@@ -348,6 +353,7 @@ _register(
         primary_key=["id"],
         envelope=Envelope.ARRAY,
         incremental_sort=True,
+        time_field="updated_at",
         default_params={"per_page": "100", "sort": "updated", "direction": "desc"},
         context_columns=("org",),
         schema=_repo_object_cols(),
@@ -458,6 +464,7 @@ _register(
         primary_key=["repository", "sha"],
         envelope=Envelope.ARRAY,
         incremental_param="since",
+        time_field="commit.author.date",
         context_columns=("owner", "repo", "repository"),
         schema=[
             _str("sha"),
@@ -575,6 +582,7 @@ _register(
         primary_key=["id"],
         envelope=Envelope.ARRAY,
         incremental_param="since",
+        time_field="updated_at",
         drop_predicate="pull_request",  # /issues returns PRs too — drop them (§4.4)
         filter_params={"issue_state": "state"},
         context_columns=("owner", "repo"),
@@ -607,6 +615,7 @@ _register(
         primary_key=["id"],
         envelope=Envelope.ARRAY,
         incremental_param="since",
+        time_field="updated_at",
         context_columns=("owner", "repo"),
         schema=[
             _int("id"),
@@ -630,6 +639,7 @@ _register(
         primary_key=["id"],
         envelope=Envelope.ARRAY,
         incremental_sort=True,  # no `since` on /pulls — sort=updated desc + client-side stop (R6)
+        time_field="updated_at",
         default_params={"per_page": "100", "sort": "updated", "direction": "desc"},
         filter_params={"pull_state": "state"},
         context_columns=("owner", "repo"),
@@ -688,6 +698,7 @@ _register(
         primary_key=["id"],
         envelope=Envelope.ARRAY,
         incremental_param="since",
+        time_field="updated_at",
         context_columns=("owner", "repo"),
         schema=[
             _int("id"),
@@ -841,6 +852,7 @@ _register(
         envelope_key="workflow_runs",
         incremental_param="created",  # /actions/runs filters by `created`, not `since`
         incremental_param_format=_created_date_range,  # `created` wants >=YYYY-MM-DD, not a bare instant
+        time_field="created_at",
         context_columns=("owner", "repo"),
         schema=[
             _int("id"),
@@ -920,6 +932,32 @@ def _dig(record: dict[str, Any], dotted: str) -> Any:
         if value is None:
             return None
     return value
+
+
+def record_in_window(
+    endpoint: Endpoint, record: dict[str, Any], since: datetime | None, until: datetime | None
+) -> bool:
+    """True if the record's ``time_field`` falls within ``[since, until]`` (open where a bound is None).
+
+    The client-side guarantee for the fetch window: GitHub's server-side ``since``/``created`` bound
+    volume where it exists, but ``until`` (and any endpoint without a native lower bound) is enforced
+    here so the window is honoured uniformly. A record with no parseable timestamp is KEPT — we never
+    silently drop data we can't classify.
+    """
+    if endpoint.time_field is None or (since is None and until is None):
+        return True
+    raw = _dig(record, endpoint.time_field)
+    if not isinstance(raw, str):
+        return True
+    try:
+        ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if since is not None and ts < since:
+        return False
+    if until is not None and ts > until:
+        return False
+    return True
 
 
 def expand_records(endpoint: Endpoint, payload: Any, context: dict[str, str]) -> Iterator[dict[str, Any]]:

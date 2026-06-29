@@ -132,45 +132,37 @@ if incremental: persist per-target watermarks for the succeeded targets
 - A single inaccessible target (deleted repo, private team) is logged and skipped so an `empty = all`
   run is not derailed by one bad target.
 
-### 4.2 `since` / time-window semantics
+### 4.2 `since` / `until` time-window semantics — STATELESS
 
-The effective per-target `since` lower bound is resolved per run from `load_type` + `Fetch Since`
-(parsed via §8, relative phrases recomputed each run):
+> **Revised (2026-06-29):** the per-target watermark below was removed. It silently overrode an
+> explicit lower bound (running a 10-day sample then locked you out of backfilling 90 days) — a bad,
+> surprising design. Replaced by an explicit, stateless `[since, until]` window.
 
-| `load_type` | `Fetch Since` | Effective `since` each run | State |
-|---|---|---|---|
-| Full Load | set | `parsed(Fetch Since)` — **applied every run** (rolling window; table is full-replaced) | none written |
-| Full Load | empty | none (full history) | none written |
-| Incremental | set | first run: `parsed(Fetch Since)`; later runs: per-target watermark | per-target watermark |
-| Incremental | empty | per-target watermark, else none | per-target watermark |
+Each time-windowable endpoint (those with `incremental_param`, `incremental_sort`, or a `time_field`)
+fetches **exactly the `[since, until]` window every run** — no hidden state:
 
-This is the one behavioural change to the existing `_since()` path: today `since` is computed **only**
-when incremental (`component.py:94`), so Full Load ignores `Fetch Since`. The new rule computes `since`
-in both modes — from the watermark only in Incremental, and from `Fetch Since` in both — giving the
-"last N days, replaced each run" use case (Full Load + relative `Fetch Since`) for free. Only
-incremental-capable endpoints (those with `incremental_param` or `incremental_sort`) honour `since`; for
-others there is no time dimension and the field is hidden.
+- **`since`** (lower bound) and **`until`** (upper bound) are explicit config fields, dateparser-backed
+  (ISO or relative: `90 days ago`, `now`). `since` always applies — **widen it to backfill**. Empty
+  `since` = no lower bound; empty `until` = up to now.
+- **Efficiency comes from the bounds themselves, not from filtering everything:** `since` is pushed to
+  GitHub server-side where supported (`/commits?since`, `/issues?since`, `/actions/runs?created=>=…`)
+  and enforced by `sort=updated desc` + stop-paging on sort-only endpoints (`/pulls`, repo lists).
+- **`until` is enforced client-side** (`endpoints.record_in_window` on the endpoint's `time_field`)
+  because GitHub lacks a native upper bound on most endpoints — so the field works uniformly, never
+  silently ignored. With `until = now` (the default) there is zero over-fetch.
+- `load_type` now only controls the **Storage write mode** (incremental = upsert by PK, full = replace);
+  it no longer gates a watermark.
 
-Because `repository_pull_reviews` is now effectively incremental-capable (its PR scan sorts `updated`
-desc with a stop-paging watermark, §7.1), it **joins the `load_type` / `Fetch Since` dependency set** so
-a rolling/incremental window can bound the PR scan.
+`repository_pull_reviews` applies the window to its **PR scan** (which PRs to walk), via the
+`repository_pulls` `time_field`/stop-paging.
 
-## 5. Incremental state (per-target watermark)
+## 5. State — none
 
-State shape changes from a single mark to a per-target map:
-
-```json
-{ "targets": { "keboola/component-github": "2026-06-01T10:00:00+00:00", "keboola/other": "2026-05-20T…" } }
-```
-
-- Target key: `owner/repo` (OWNER_REPO), `org` (ORG), `org/team_slug` (ORG_TEAM). For
-  `repository_pull_reviews` (§7.1) the watermark bounds the **PR scan** and is keyed by `owner/repo`.
-- `_since(endpoint, target)` returns `state["targets"][key]` → else the row's parsed `initial_since`
-  (§8) → else `None` (full history).
-- After a successful fetch of a target, its watermark is set to this run's start time; **only succeeded
-  targets advance**, so a skipped/failed target retries its range next run.
-- **Legacy migration:** if the old `{"last_run": "…"}` shape is present and `targets` is absent, seed
-  every resolved target with that legacy value on first read — no re-fetch of history for existing rows.
+The extractor is **stateless**: it reads and writes no `state.json` for windowing. The fetch window is
+fully determined by the row's `since`/`until` each run. (Removed: the per-target watermark map and the
+legacy `last_run` migration.) Re-running with the same window is idempotent under incremental (PK
+upsert); widening `since` backfills; narrowing it does not delete already-loaded rows under incremental
+(they fall outside the window and are simply not re-fetched).
 
 ## 6. Output
 

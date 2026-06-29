@@ -16,7 +16,7 @@
           ]
         },
         "method": "GET",
-        "uri": "https://api.github.com/user/orgs"
+        "uri": "https://api.github.com/user/orgs?per_page=100"
       },
       "response": {
         "body": {

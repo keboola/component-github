@@ -242,14 +242,37 @@
       "default": "incremental_load",
       "propertyOrder": 60
     },
-    "initial_since": {
+    "since": {
       "type": "string",
-      "title": "Fetch Since (optional)",
+      "title": "Since (optional)",
       "default": "",
-      "description": "Only fetch records changed at or after this point.",
+      "description": "Lower bound of the fetch window — only records at or after this are fetched.",
       "propertyOrder": 70,
       "options": {
-        "tooltip": "Accepts an ISO-8601 instant (<code>2024-01-01T00:00:00Z</code>) or a relative phrase (<code>5 days ago</code>, <code>yesterday</code>). In Full Load it is applied on every run (a rolling window — the table is replaced each run). In Incremental Load it is the starting point for the first run only, after which the stored watermark takes over. Empty = full history.",
+        "tooltip": "ISO-8601 instant (<code>2024-01-01T00:00:00Z</code>) or a relative phrase (<code>90 days ago</code>, <code>yesterday</code>). Applied on EVERY run — widen it to backfill. Empty = no lower bound (all history).",
+        "dependencies": {
+          "endpoint": [
+            "user_repos",
+            "organization_repositories",
+            "repository_commits",
+            "repository_issues",
+            "repository_issue_comments",
+            "repository_pulls",
+            "repository_pull_reviews",
+            "repository_pull_review_comments",
+            "repository_workflow_runs"
+          ]
+        }
+      }
+    },
+    "until": {
+      "type": "string",
+      "title": "Until (optional)",
+      "default": "",
+      "description": "Upper bound of the fetch window — only records at or before this are fetched.",
+      "propertyOrder": 71,
+      "options": {
+        "tooltip": "ISO-8601 instant or a relative phrase (<code>now</code>, <code>yesterday</code>). Empty = up to now. Together with Since this is a two-sided window (e.g. Since '90 days ago', Until 'now' = the last 90 days).",
         "dependencies": {
           "endpoint": [
             "user_repos",

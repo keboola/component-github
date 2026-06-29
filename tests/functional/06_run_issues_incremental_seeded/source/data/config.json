@@ -5,6 +5,7 @@
     "#github_token": "DUMMY_PAT_NOT_REAL",
     "endpoint": "repository_issues",
     "repository": "octocat/Spoon-Knife",
-    "load_type": "incremental_load"
+    "load_type": "incremental_load",
+    "since": "2024-02-01T00:00:00+00:00"
   }
 }
