@@ -240,3 +240,19 @@ def test_list_organizations_skips_entries_missing_login(tmp_path):
     comp = _component(_datadir(tmp_path, _SYNC_CONFIG), patch_client=False)
     result = comp.list_organizations()
     assert [e.value for e in result] == ["octo-org"]
+
+
+# --------------------------------------------------- row schema: graphql_query data source
+
+
+def test_row_schema_has_graphql_data_source():
+    schema = json.loads(
+        (Path(__file__).resolve().parent.parent / "component_config" / "configRowSchema.json").read_text()
+    )
+    endpoint = schema["properties"]["endpoint"]
+    assert "graphql_query" in endpoint["enum"]
+    # the GraphQL fields exist and are gated on the graphql_query data source
+    for field in ("query_template", "gql_query", "output_table", "gql_org"):
+        assert field in schema["properties"], field
+        deps = schema["properties"][field]["options"]["dependencies"]
+        assert "graphql_query" in deps["endpoint"]

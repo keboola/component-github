@@ -39,7 +39,8 @@
         "repository_workflows",
         "repository_workflow_runs",
         "repository_deployments",
-        "repository_webhooks"
+        "repository_webhooks",
+        "graphql_query"
       ],
       "options": {
         "enum_titles": [
@@ -75,7 +76,8 @@
           "Repository Workflows",
           "Repository Workflow Runs",
           "Repository Deployments",
-          "Repository Webhooks"
+          "Repository Webhooks",
+          "GraphQL Query (advanced)"
         ]
       },
       "propertyOrder": 10
@@ -235,7 +237,8 @@
             "repository_pulls",
             "repository_pull_reviews",
             "repository_pull_review_comments",
-            "repository_workflow_runs"
+            "repository_workflow_runs",
+            "graphql_query"
           ]
         }
       },
@@ -326,6 +329,100 @@
       },
       "default": "all",
       "propertyOrder": 82
+    },
+    "query_template": {
+      "type": "string",
+      "title": "Query Template",
+      "enum": ["custom", "org_ai_config_files", "org_pull_request_reviews"],
+      "default": "custom",
+      "propertyOrder": 90,
+      "options": {
+        "enum_titles": ["Custom (write your own)", "Org repos: AI config files (AGENTS.md, CLAUDE.md)", "Repository: Open PRs with review decision"],
+        "tooltip": "Pick a built-in query, or Custom to write your own GraphQL.",
+        "dependencies": { "endpoint": ["graphql_query"] }
+      }
+    },
+    "gql_query": {
+      "type": "string",
+      "format": "textarea",
+      "title": "GraphQL Query",
+      "default": "",
+      "description": "A GitHub GraphQL query. For pagination, select pageInfo { hasNextPage endCursor } and declare a $cursor variable used as after: $cursor.",
+      "propertyOrder": 91,
+      "options": {
+        "tooltip": "Runs against https://api.github.com/graphql with your token. The result is flattened into one table (objects become parent_child columns; nested lists become a JSON cell).",
+        "dependencies": { "endpoint": ["graphql_query"] }
+      }
+    },
+    "gql_variables": {
+      "type": "string",
+      "format": "textarea",
+      "title": "GraphQL Variables (JSON)",
+      "default": "",
+      "description": "A JSON object of variables for your query, e.g. {\"org\": \"acme\"}. Leave blank for none.",
+      "propertyOrder": 92,
+      "options": { "dependencies": { "endpoint": ["graphql_query"] } }
+    },
+    "gql_row_path": {
+      "type": "string",
+      "title": "Row path (advanced)",
+      "default": "",
+      "propertyOrder": 93,
+      "options": {
+        "tooltip": "Dotted path under data to the list whose items become your table rows, e.g. organization.repositories.nodes. Leave empty to detect it automatically; set it only when the query returns more than one list and detection can't choose.",
+        "dependencies": { "endpoint": ["graphql_query"] }
+      }
+    },
+    "output_table": {
+      "type": "string",
+      "title": "Output table name",
+      "default": "",
+      "description": "Name of the output table (letters, digits, underscore, hyphen). Required in Custom mode; templates default it.",
+      "propertyOrder": 94,
+      "options": { "dependencies": { "endpoint": ["graphql_query"] } }
+    },
+    "primary_key": {
+      "type": "string",
+      "title": "Primary key (optional)",
+      "default": "",
+      "description": "Comma-separated result column name(s) for incremental upsert. Empty = full load only.",
+      "propertyOrder": 95,
+      "options": {
+        "tooltip": "Column names AFTER flattening (e.g. nameWithOwner). Used only when Load Type is Incremental.",
+        "dependencies": { "endpoint": ["graphql_query"] }
+      }
+    },
+    "gql_org": {
+      "type": "string",
+      "title": "Organization",
+      "default": "",
+      "propertyOrder": 96,
+      "options": {
+        "tooltip": "Organization login the template runs against.",
+        "dependencies": { "endpoint": ["graphql_query"] }
+      }
+    },
+    "gql_repo": {
+      "type": "string",
+      "title": "Repository name",
+      "default": "",
+      "propertyOrder": 97,
+      "options": {
+        "tooltip": "Repository name (without owner) for the Open PRs template.",
+        "dependencies": { "endpoint": ["graphql_query"] }
+      }
+    },
+    "gql_filenames": {
+      "type": "array",
+      "title": "File names",
+      "format": "select",
+      "uniqueItems": true,
+      "default": ["AGENTS.md", "CLAUDE.md"],
+      "items": { "type": "string" },
+      "options": {
+        "tooltip": "Files to probe per repo (one content column group each). Default AGENTS.md + CLAUDE.md.",
+        "dependencies": { "endpoint": ["graphql_query"] }
+      }
     }
   }
 }
