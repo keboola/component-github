@@ -1,0 +1,38 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/orgs/octo-org/members?per_page=100"
+      },
+      "response": {
+        "body": {
+          "string": "[{\"id\": 583231, \"login\": \"octocat\", \"node_id\": \"MDQ6VXNlcjU4MzIzMQ==\", \"type\": \"User\", \"html_url\": \"https://github.com/octocat\", \"site_admin\": false}, {\"id\": 1024025, \"login\": \"hubot\", \"node_id\": \"MDQ6VXNlcjEwMjQwMjU=\", \"type\": \"User\", \"html_url\": \"https://github.com/hubot\", \"site_admin\": false}]"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    }
+  ],
+  "version": 1
+}

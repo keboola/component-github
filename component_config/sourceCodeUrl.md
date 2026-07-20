@@ -1,1 +1,1 @@
-https://github.com/keboola/component-github.git
+https://github.com/keboola/component-github

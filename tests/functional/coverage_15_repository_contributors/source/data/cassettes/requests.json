@@ -1,0 +1,44 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/repos/octocat/Spoon-Knife/contributors?per_page=100"
+      },
+      "response": {
+        "body": {
+          "string": "[{\"login\": \"octocat\", \"id\": 583231, \"node_id\": \"MDQ6VXNlcjU4MzIzMQ==\", \"avatar_url\": \"https://avatars.githubusercontent.com/u/583231?v=4\", \"gravatar_id\": \"\", \"url\": \"https://api.github.com/users/octocat\", \"html_url\": \"https://github.com/octocat\", \"followers_url\": \"https://api.github.com/users/octocat/followers\", \"following_url\": \"https://api.github.com/users/octocat/following{/other_user}\", \"gists_url\": \"https://api.github.com/users/octocat/gists{/gist_id}\", \"starred_url\": \"https://api.github.com/users/octocat/starred{/owner}{/repo}\", \"subscriptions_url\": \"https://api.github.com/users/octocat/subscriptions\", \"organizations_url\": \"https://api.github.com/users/octocat/orgs\", \"repos_url\": \"https://api.github.com/users/octocat/repos\", \"events_url\": \"https://api.github.com/users/octocat/events{/privacy}\", \"received_events_url\": \"https://api.github.com/users/octocat/received_events\", \"type\": \"User\", \"user_view_type\": \"public\", \"site_admin\": false, \"contributions\": 3}]"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json; charset=utf-8"
+          ],
+          "X-RateLimit-Remaining": [
+            "4596"
+          ],
+          "X-RateLimit-Reset": [
+            "1782249283"
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    }
+  ],
+  "version": 1
+}

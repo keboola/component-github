@@ -1,0 +1,18 @@
+{
+  "action": "run",
+  "parameters": {
+    "auth_type": "oauth",
+    "endpoint": "repository",
+    "repository": "octocat/Spoon-Knife",
+    "load_type": "full_load"
+  },
+  "authorization": {
+    "oauth_api": {
+      "credentials": {
+        "appKey": "DUMMY_CLIENT_ID",
+        "#appSecret": "DUMMY_CLIENT_SECRET",
+        "#data": "{\"access_token\":\"DUMMY_OAUTH_ACCESS_TOKEN\",\"token_type\":\"bearer\",\"scope\":\"read:org,repo\"}"
+      }
+    }
+  }
+}

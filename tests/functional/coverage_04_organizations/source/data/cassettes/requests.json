@@ -1,0 +1,44 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/orgs/github?per_page=100"
+      },
+      "response": {
+        "body": {
+          "string": "{\"login\": \"github\", \"id\": 9919, \"node_id\": \"MDEyOk9yZ2FuaXphdGlvbjk5MTk=\", \"url\": \"https://api.github.com/orgs/github\", \"repos_url\": \"https://api.github.com/orgs/github/repos\", \"events_url\": \"https://api.github.com/orgs/github/events\", \"hooks_url\": \"https://api.github.com/orgs/github/hooks\", \"issues_url\": \"https://api.github.com/orgs/github/issues\", \"members_url\": \"https://api.github.com/orgs/github/members{/member}\", \"public_members_url\": \"https://api.github.com/orgs/github/public_members{/member}\", \"avatar_url\": \"https://avatars.githubusercontent.com/u/9919?v=4\", \"description\": \"How people build software.\", \"name\": \"GitHub\", \"company\": null, \"blog\": \"https://github.com/about\", \"location\": \"United States of America\", \"email\": null, \"twitter_username\": null, \"is_verified\": true, \"has_organization_projects\": true, \"has_repository_projects\": true, \"public_repos\": 552, \"public_gists\": 0, \"followers\": 78106, \"following\": 0, \"html_url\": \"https://github.com/github\", \"created_at\": \"2008-05-11T04:37:31Z\", \"updated_at\": \"2026-05-06T23:12:05Z\", \"archived_at\": null, \"type\": \"Organization\"}"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json; charset=utf-8"
+          ],
+          "X-RateLimit-Remaining": [
+            "4602"
+          ],
+          "X-RateLimit-Reset": [
+            "1782249283"
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    }
+  ],
+  "version": 1
+}

@@ -1,0 +1,44 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/repos/octocat/Spoon-Knife/issues?per_page=100&state=all"
+      },
+      "response": {
+        "body": {
+          "string": "{\"message\": \"API rate limit exceeded\"}"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ],
+          "x-ratelimit-remaining": [
+            "0"
+          ],
+          "x-ratelimit-reset": [
+            "9999999999"
+          ]
+        },
+        "status": {
+          "code": 403,
+          "message": "Forbidden"
+        }
+      }
+    }
+  ],
+  "version": 1
+}

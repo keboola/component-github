@@ -1,55 +1,61 @@
 {
   "type": "object",
-  "title": "GitHub Extractor Configuration",
-  "required": [
-    "#github_token",
-    "endpoints"
-  ],
+  "title": "GitHub Extractor — Root Configuration",
+  "required": ["auth_type"],
   "properties": {
-    "authorization": {
-      "title": "Authorization",
-      "type": "object",
-      "required": [
-        "#github_token"
-      ],
-      "propertyOrder": 10,
-      "properties": {
-        "#github_token": {
-          "title": "GitHub Personal Access Token",
-          "type": "string",
-          "format": "password",
-          "propertyOrder": 10,
-          "description": "GitHub Personal Access Token with appropriate permissions. Create one at <a href='https://github.com/settings/tokens' target='_blank'>GitHub Settings > Developer settings > Personal access tokens</a>. Required scopes: read:org, repo"
+    "auth_type": {
+      "type": "string",
+      "title": "Authentication Method",
+      "description": "How to authenticate to GitHub: a Personal Access Token you supply, or OAuth (authorize via the authorization button above).",
+      "enum": ["pat", "oauth"],
+      "options": {
+        "enum_titles": ["Personal Access Token", "OAuth"]
+      },
+      "default": "pat",
+      "propertyOrder": 10
+    },
+    "#github_token": {
+      "type": "string",
+      "title": "GitHub Personal Access Token",
+      "format": "password",
+      "description": "Your GitHub Personal Access Token.",
+      "propertyOrder": 20,
+      "options": {
+        "tooltip": "Create a classic (`ghp_…`) or fine-grained (`github_pat_…`) PAT in **GitHub → Settings → Developer settings → Personal access tokens**. Required scopes: `read:org`, `repo`. If your organization enforces SAML SSO you must also SSO-authorize the token before use.",
+        "dependencies": {
+          "auth_type": ["pat"]
         }
       }
     },
-    "endpoints": {
-      "title": "Endpoints to Extract",
-      "description": "Select which GitHub data endpoints you want to extract",
-      "type": "array",
-      "format": "select",
-      "uniqueItems": true,
-      "minItems": 1,
-      "items": {
-        "enum": [
-          "organizations",
-          "organization_members",
-          "organization_teams",
-          "organization_repositories",
-          "repository_issues",
-          "repository_commits"
-        ],
-        "type": "string"
-      },
-      "propertyOrder": 20
+    "test_connection": {
+      "type": "button",
+      "format": "test-connection",
+      "propertyOrder": 25,
+      "options": {
+        "dependencies": {
+          "auth_type": ["pat"]
+        },
+        "async": {
+          "label": "Test Connection",
+          "action": "testConnection"
+        }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "title": "GitHub OAuth",
+      "propertyOrder": 30,
+      "options": {
+        "dependencies": {
+          "auth_type": ["oauth"]
+        }
+      }
     },
     "debug": {
       "type": "boolean",
       "title": "Debug Mode",
-      "format": "checkbox",
       "default": false,
-      "propertyOrder": 1000,
-      "description": "Enable verbose logging for troubleshooting"
+      "propertyOrder": 1000
     }
   }
 }

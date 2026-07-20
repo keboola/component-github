@@ -1,0 +1,44 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/orgs/github/events?per_page=100"
+      },
+      "response": {
+        "body": {
+          "string": "[{\"id\": \"13781318492\", \"type\": \"DeleteEvent\", \"actor\": {\"id\": 2642209, \"login\": \"stephentoub\", \"display_login\": \"stephentoub\", \"gravatar_id\": \"\", \"url\": \"https://api.github.com/users/stephentoub\", \"avatar_url\": \"https://avatars.githubusercontent.com/u/2642209?\"}, \"repo\": {\"id\": 1133883850, \"name\": \"github/copilot-sdk\", \"url\": \"https://api.github.com/repos/github/copilot-sdk\"}, \"payload\": {\"ref\": \"stephentoub-dotnet-strong-name\", \"ref_type\": \"branch\", \"full_ref\": \"refs/heads/stephentoub-dotnet-strong-name\", \"pusher_type\": \"user\"}, \"public\": true, \"created_at\": \"2026-06-23T20:46:04Z\", \"org\": {\"id\": 9919, \"login\": \"github\", \"gravatar_id\": \"\", \"url\": \"https://api.github.com/orgs/github\", \"avatar_url\": \"https://avatars.githubusercontent.com/u/9919?\"}}, {\"id\": \"13781317478\", \"type\": \"PushEvent\", \"actor\": {\"id\": 2642209, \"login\": \"stephentoub\", \"display_login\": \"stephentoub\", \"gravatar_id\": \"\", \"url\": \"https://api.github.com/users/stephentoub\", \"avatar_url\": \"https://avatars.githubusercontent.com/u/2642209?\"}, \"repo\": {\"id\": 1133883850, \"name\": \"github/copilot-sdk\", \"url\": \"https://api.github.com/repos/github/copilot-sdk\"}, \"payload\": {\"repository_id\": 1133883850, \"push_id\": 36069394048, \"ref\": \"refs/heads/main\", \"head\": \"6ec8035df23688c8b5c98de3296b76797904752c\", \"before\": \"f800768d15fafff9adfb8f37ded7e583ab51e568\"}, \"public\": true, \"created_at\": \"2026-06-23T20:46:02Z\", \"org\": {\"id\": 9919, \"login\": \"github\", \"gravatar_id\": \"\", \"url\": \"https://api.github.com/orgs/github\", \"avatar_url\": \"https://avatars.githubusercontent.com/u/9919?\"}}]"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json; charset=utf-8"
+          ],
+          "X-RateLimit-Remaining": [
+            "4963"
+          ],
+          "X-RateLimit-Reset": [
+            "1782250011"
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    }
+  ],
+  "version": 1
+}

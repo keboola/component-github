@@ -1,0 +1,38 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/rate_limit"
+      },
+      "response": {
+        "body": {
+          "string": "{\"resources\": {\"core\": {\"limit\": 5000, \"remaining\": 4999, \"reset\": 9999999999}}, \"rate\": {\"limit\": 5000, \"remaining\": 4999, \"reset\": 9999999999}}"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    }
+  ],
+  "version": 1
+}

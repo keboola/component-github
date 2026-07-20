@@ -1,0 +1,11 @@
+{
+  "action": "run",
+  "parameters": {
+    "auth_type": "pat",
+    "#github_token": "DUMMY_PAT_NOT_REAL",
+    "endpoint": "team_members",
+    "load_type": "full_load",
+    "organization": "github",
+    "team_slug": "justice-league"
+  }
+}

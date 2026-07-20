@@ -7,6 +7,19 @@ __pycache__/
 *.py[cod]
 *.egg-info
 venv
+.claude
+.claude/loop.md
 
 # kbc datafolder
-data
+/data
+
+# local build-lifecycle tracker (never commit)
+docs/superpowers/*-lifecycle.md
+
+# vcr datadirtesting
+secrets.json
+tests/setup/secrets.json
+# Transient run output (the tester runs on a temp copy; committed fixtures live in expected/).
+tests/functional/*/source/data/out/
+# NOTE: source/data/in/state.json IS a committed fixture (seeds the incremental case) — do not
+# ignore source/data/in/. The runner copies each case to a temp dir, so it is never polluted.

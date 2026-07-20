@@ -1,1 +1,1 @@
-https://github.com/keboola/component-github.git/blob/master/README.md
+https://github.com/keboola/component-github/blob/main/README.md

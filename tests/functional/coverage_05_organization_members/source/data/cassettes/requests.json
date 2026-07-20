@@ -1,0 +1,44 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/orgs/github/members?per_page=100"
+      },
+      "response": {
+        "body": {
+          "string": "[{\"login\": \"aashah\", \"id\": 1176726, \"node_id\": \"MDQ6VXNlcjExNzY3MjY=\", \"avatar_url\": \"https://avatars.githubusercontent.com/u/1176726?v=4\", \"gravatar_id\": \"\", \"url\": \"https://api.github.com/users/aashah\", \"html_url\": \"https://github.com/aashah\", \"followers_url\": \"https://api.github.com/users/aashah/followers\", \"following_url\": \"https://api.github.com/users/aashah/following{/other_user}\", \"gists_url\": \"https://api.github.com/users/aashah/gists{/gist_id}\", \"starred_url\": \"https://api.github.com/users/aashah/starred{/owner}{/repo}\", \"subscriptions_url\": \"https://api.github.com/users/aashah/subscriptions\", \"organizations_url\": \"https://api.github.com/users/aashah/orgs\", \"repos_url\": \"https://api.github.com/users/aashah/repos\", \"events_url\": \"https://api.github.com/users/aashah/events{/privacy}\", \"received_events_url\": \"https://api.github.com/users/aashah/received_events\", \"type\": \"User\", \"user_view_type\": \"public\", \"site_admin\": true}, {\"login\": \"abbycabs\", \"id\": 617994, \"node_id\": \"MDQ6VXNlcjYxNzk5NA==\", \"avatar_url\": \"https://avatars.githubusercontent.com/u/617994?v=4\", \"gravatar_id\": \"\", \"url\": \"https://api.github.com/users/abbycabs\", \"html_url\": \"https://github.com/abbycabs\", \"followers_url\": \"https://api.github.com/users/abbycabs/followers\", \"following_url\": \"https://api.github.com/users/abbycabs/following{/other_user}\", \"gists_url\": \"https://api.github.com/users/abbycabs/gists{/gist_id}\", \"starred_url\": \"https://api.github.com/users/abbycabs/starred{/owner}{/repo}\", \"subscriptions_url\": \"https://api.github.com/users/abbycabs/subscriptions\", \"organizations_url\": \"https://api.github.com/users/abbycabs/orgs\", \"repos_url\": \"https://api.github.com/users/abbycabs/repos\", \"events_url\": \"https://api.github.com/users/abbycabs/events{/privacy}\", \"received_events_url\": \"https://api.github.com/users/abbycabs/received_events\", \"type\": \"User\", \"user_view_type\": \"public\", \"site_admin\": true}]"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json; charset=utf-8"
+          ],
+          "X-RateLimit-Remaining": [
+            "4601"
+          ],
+          "X-RateLimit-Reset": [
+            "1782249283"
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    }
+  ],
+  "version": 1
+}

@@ -1,0 +1,74 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-29T12:00:00+00:00",
+    "recorded_at": "2026-06-29T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": { "Authorization": ["Bearer ***"] },
+        "method": "POST",
+        "uri": "https://api.github.com/graphql"
+      },
+      "response": {
+        "body": { "string": "{\"data\":{\"search\":{\"issueCount\":1500,\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":null},\"nodes\":[]}}}" },
+        "headers": { "Content-Type": ["application/json"] },
+        "status": { "code": 200, "message": "OK" }
+      }
+    },
+    {
+      "request": {
+        "body": null,
+        "headers": { "Authorization": ["Bearer ***"] },
+        "method": "POST",
+        "uri": "https://api.github.com/graphql"
+      },
+      "response": {
+        "body": { "string": "{\"data\":{\"search\":{\"issueCount\":600,\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":null},\"nodes\":[{\"id\":\"PR_A\",\"number\":1,\"title\":\"Alpha\"},{\"id\":\"PR_B\",\"number\":2,\"title\":\"Beta\"}]}}}" },
+        "headers": { "Content-Type": ["application/json"] },
+        "status": { "code": 200, "message": "OK" }
+      }
+    },
+    {
+      "request": {
+        "body": null,
+        "headers": { "Authorization": ["Bearer ***"] },
+        "method": "POST",
+        "uri": "https://api.github.com/graphql"
+      },
+      "response": {
+        "body": { "string": "{\"data\":{\"search\":{\"issueCount\":600,\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":null},\"nodes\":[{\"id\":\"PR_A\",\"number\":1,\"title\":\"Alpha\"},{\"id\":\"PR_B\",\"number\":2,\"title\":\"Beta\"}]}}}" },
+        "headers": { "Content-Type": ["application/json"] },
+        "status": { "code": 200, "message": "OK" }
+      }
+    },
+    {
+      "request": {
+        "body": null,
+        "headers": { "Authorization": ["Bearer ***"] },
+        "method": "POST",
+        "uri": "https://api.github.com/graphql"
+      },
+      "response": {
+        "body": { "string": "{\"data\":{\"search\":{\"issueCount\":700,\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":null},\"nodes\":[{\"id\":\"PR_C\",\"number\":3,\"title\":\"Gamma\"},{\"id\":\"PR_B\",\"number\":2,\"title\":\"Beta\"}]}}}" },
+        "headers": { "Content-Type": ["application/json"] },
+        "status": { "code": 200, "message": "OK" }
+      }
+    },
+    {
+      "request": {
+        "body": null,
+        "headers": { "Authorization": ["Bearer ***"] },
+        "method": "POST",
+        "uri": "https://api.github.com/graphql"
+      },
+      "response": {
+        "body": { "string": "{\"data\":{\"search\":{\"issueCount\":700,\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":null},\"nodes\":[{\"id\":\"PR_C\",\"number\":3,\"title\":\"Gamma\"},{\"id\":\"PR_B\",\"number\":2,\"title\":\"Beta\"}]}}}" },
+        "headers": { "Content-Type": ["application/json"] },
+        "status": { "code": 200, "message": "OK" }
+      }
+    }
+  ],
+  "version": 1
+}

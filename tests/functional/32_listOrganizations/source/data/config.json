@@ -1,0 +1,8 @@
+{
+  "action": "listOrganizations",
+  "parameters": {
+    "auth_type": "pat",
+    "#github_token": "DUMMY_PAT_NOT_REAL",
+    "endpoint": ""
+  }
+}

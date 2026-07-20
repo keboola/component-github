@@ -1,0 +1,12 @@
+{
+  "action": "run",
+  "parameters": {
+    "auth_type": "pat",
+    "#github_token": "DUMMY_PAT_NOT_REAL",
+    "endpoint": "graphql_query",
+    "query_template": "org_ai_config_files",
+    "gql_org": "acme",
+    "gql_filenames": ["AGENTS.md", "CLAUDE.md"],
+    "load_type": "full_load"
+  }
+}

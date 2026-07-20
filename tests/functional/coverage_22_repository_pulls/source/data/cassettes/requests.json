@@ -1,0 +1,38 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/repos/octocat/Spoon-Knife/pulls?per_page=100&sort=updated&direction=desc&state=all"
+      },
+      "response": {
+        "body": {
+          "string": "[{\"id\": 1, \"node_id\": \"PR_1\", \"number\": 1, \"title\": \"Update README\", \"state\": \"open\", \"locked\": false, \"draft\": false, \"user\": {\"login\": \"alice\", \"id\": 11}, \"head\": {\"ref\": \"patch-1\", \"sha\": \"ccc333\"}, \"base\": {\"ref\": \"main\"}, \"merge_commit_sha\": null, \"html_url\": \"https://github.com/octocat/Spoon-Knife/pull/1\", \"created_at\": \"2024-03-01T09:00:00Z\", \"updated_at\": \"2024-03-02T09:00:00Z\", \"closed_at\": null, \"merged_at\": null}]"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    }
+  ],
+  "version": 1
+}

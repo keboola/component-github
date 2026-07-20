@@ -1,57 +1,36 @@
 # GitHub Extractor
 
-This extractor component allows you to extract data from GitHub using the GitHub REST API (v2022-11-28).
+Extracts data from the [GitHub REST API](https://docs.github.com/en/rest) (version `2022-11-28`) into Keboola Storage for analytics. The component is **row-based**: each configuration row defines a single extraction — one GitHub endpoint applied to one target (the authenticated user, an organization, or an `owner/repo`) — and produces one output table. Adding more data is a matter of adding rows, not reconfiguring a single shared run.
 
-## Features
+## Authentication
 
-The component supports extraction from the following GitHub endpoints:
+Two methods are supported:
 
-- **Organizations** - List all organizations the authenticated user has access to
-- **Organization Members** - Extract members from a specified organization
-- **Organization Teams** - Extract teams from a specified organization  
-- **Organization Repositories** - Extract repositories from a specified organization
-- **Repository Issues** - Extract issues from a specific repository
-- **Repository Commits** - Extract commits from a specific repository
+- **Personal Access Token (PAT)** — paste a classic (`ghp_…`) or fine-grained (`github_pat_…`) token. Required scopes: `read:org`, `repo`. SAML-SSO organizations require the token to be SSO-authorized.
+- **OAuth** — authorize the component through Keboola's OAuth broker (no token handling required).
 
-## Configuration
+## Supported endpoints
 
-### Authentication
+Around 33 endpoints across three target types:
 
-You need to provide a GitHub Personal Access Token with appropriate permissions:
+- **Authenticated user** — user profile, the user's repositories, the user's organizations.
+- **Organizations** — organization details, members, teams, team members, repositories, events, outside collaborators.
+- **Repositories** — repository details, branches, tags, commits, contributors, collaborators, languages, topics, releases, issues, issue comments, pull requests, pull request reviews and review comments, labels, milestones, stargazers, subscribers, forks, workflows, workflow runs, deployments, and webhooks.
 
-1. Go to [GitHub Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens)
-2. Generate a new token (classic) or fine-grained personal access token
-3. Required scopes:
-   - `read:org` - for organization data
-   - `repo` - for repository data
+## Incremental loads
 
-### Endpoint Selection
+Endpoints that expose a server-side cursor (`since` or sort-by-`updated`) — issues, commits, issue comments, pull requests, pull review comments, workflow runs, and user/org repositories — support incremental loading. The component stores a watermark per row and fetches only records changed since the last successful run. An optional **Initial Since** lower bound seeds the first run. Endpoints without an incremental signal upsert on their primary key so tables never grow unbounded.
 
-Select which endpoints you want to extract data from. Based on your selection, you may need to provide additional parameters:
+## Configuration UI
 
-- **Organization endpoints** (members, teams, repositories) require an organization name
-- **Repository endpoints** (issues, commits) require repository owner and name
+Organization, repository, and team fields are populated by sync-action dropdowns (no free-text typos), and the row form shows only the fields the chosen endpoint actually needs.
 
-### Output
+## Output
 
-Each endpoint creates a separate output table in the `out.c-github` bucket:
+Each row writes one table to the component's default bucket (`in.c-keboola-ex-github-v2-<configId>`) with native data types, a meaningful primary key, and headerless CSV. Pull requests are extracted separately from issues, so the issues table contains only true issues.
 
-- `organizations` - Organization details
-- `organization_members` - Member information per organization
-- `organization_teams` - Team information per organization
-- `organization_repositories` - Repository details per organization
-- `repository_issues` - Issue details per repository
-- `repository_commits` - Commit history per repository
+## Rate limits
 
-All tables are created with appropriate schemas and primary keys for incremental loading.
+The component respects GitHub's authenticated rate limit (5,000 requests/hour, shared per token). When a limit is hit it waits and retries within a bounded budget; if the budget is exceeded it fails with an actionable message rather than crashing, and a re-run resumes from the last successful watermark.
 
-## Rate Limits
-
-The component respects GitHub API rate limits. For authenticated requests, you typically get:
-- 5,000 requests per hour for standard tokens
-- Higher limits for GitHub Enterprise
-
-If you hit rate limits, the component will report an error. Consider:
-- Using a token with higher limits
-- Reducing the amount of data being extracted
-- Running the extraction less frequently
+For full documentation see the [component repository](https://github.com/keboola/component-github).

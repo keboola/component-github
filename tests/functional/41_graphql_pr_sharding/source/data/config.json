@@ -1,0 +1,17 @@
+{
+  "action": "run",
+  "parameters": {
+    "auth_type": "pat",
+    "#github_token": "DUMMY_PAT_NOT_REAL",
+    "endpoint": "graphql_query",
+    "query_template": "custom",
+    "gql_query": "query($q: String!, $cursor: String) { search(query: $q, type: ISSUE, first: 100, after: $cursor) { issueCount pageInfo { hasNextPage endCursor } nodes { ... on PullRequest { id number title } } } }",
+    "gql_variables": "{\"q\": \"repo:octo/big is:pr updated:{{window}} sort:updated-desc\"}",
+    "gql_row_path": "search.nodes",
+    "output_table": "pull_requests_sharded",
+    "primary_key": "id",
+    "since": "90 days ago",
+    "until": "now",
+    "load_type": "incremental_load"
+  }
+}

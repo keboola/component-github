@@ -1,0 +1,44 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/repos/octokit/octokit.rb/tags?per_page=100"
+      },
+      "response": {
+        "body": {
+          "string": "[{\"name\": \"v10.0.0\", \"zipball_url\": \"https://api.github.com/repos/octokit/octokit.rb/zipball/refs/tags/v10.0.0\", \"tarball_url\": \"https://api.github.com/repos/octokit/octokit.rb/tarball/refs/tags/v10.0.0\", \"commit\": {\"sha\": \"ea3413c3174571e87c83d358fc893cc7613091fa\", \"url\": \"https://api.github.com/repos/octokit/octokit.rb/commits/ea3413c3174571e87c83d358fc893cc7613091fa\"}, \"node_id\": \"MDM6UmVmNDE3ODYyOnJlZnMvdGFncy92MTAuMC4w\"}, {\"name\": \"v9.2.0\", \"zipball_url\": \"https://api.github.com/repos/octokit/octokit.rb/zipball/refs/tags/v9.2.0\", \"tarball_url\": \"https://api.github.com/repos/octokit/octokit.rb/tarball/refs/tags/v9.2.0\", \"commit\": {\"sha\": \"664b02d8d5df7a8ff41bfbff00da092aadebfb9e\", \"url\": \"https://api.github.com/repos/octokit/octokit.rb/commits/664b02d8d5df7a8ff41bfbff00da092aadebfb9e\"}, \"node_id\": \"MDM6UmVmNDE3ODYyOnJlZnMvdGFncy92OS4yLjA=\"}]"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json; charset=utf-8"
+          ],
+          "X-RateLimit-Remaining": [
+            "4598"
+          ],
+          "X-RateLimit-Reset": [
+            "1782249283"
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    }
+  ],
+  "version": 1
+}

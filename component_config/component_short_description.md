@@ -1,1 +1,1 @@
-Extract data from GitHub including organizations, teams, repositories, issues, and commits via the GitHub REST API.
+Extracts repositories, issues, pull requests, commits, and more from the GitHub REST API.

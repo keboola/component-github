@@ -1,14 +1,15 @@
+# Sync note: tracks cookiecutter-python-component — update when template changes
+# Do not change: KBC_DATADIR=./data, service structure.
+# Deviate: add a db: service for local integration testing; add env vars for local secrets (never commit values).
 services:
-  # for development purposes
   dev:
     build: .
     volumes:
-        - ./:/code
-        - ./data:/data
+      - ./:/code
+      - ./data:/data
     environment:
       - KBC_DATADIR=./data
   test:
-    # Use to run flake8 and unittests checks
     build: .
     volumes:
       - ./:/code

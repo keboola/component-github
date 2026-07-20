@@ -1,0 +1,19 @@
+{
+  "_metadata": { "freeze_time": "2026-06-29T12:00:00+00:00", "recorded_at": "2026-06-29T12:00:00+00:00" },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": { "Authorization": ["Bearer ***"] },
+        "method": "POST",
+        "uri": "https://api.github.com/graphql"
+      },
+      "response": {
+        "body": { "string": "{\"data\":{\"organization\":{\"repositories\":{\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":null},\"nodes\":[{\"nameWithOwner\":\"acme/web\",\"url\":\"https://github.com/acme/web\",\"defaultBranchRef\":{\"name\":\"main\"},\"agents_md\":{\"byteSize\":12,\"isBinary\":false,\"text\":\"# Agents\\n\"},\"claude_md\":{\"byteSize\":11,\"isBinary\":false,\"text\":\"# Claude\\n\"}},{\"nameWithOwner\":\"acme/legacy\",\"url\":\"https://github.com/acme/legacy\",\"defaultBranchRef\":{\"name\":\"master\"},\"agents_md\":null,\"claude_md\":null}]}}}}" },
+        "headers": { "Content-Type": ["application/json"] },
+        "status": { "code": 200, "message": "OK" }
+      }
+    }
+  ],
+  "version": 1
+}

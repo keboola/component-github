@@ -1,43 +1,445 @@
 {
   "type": "object",
-  "title": "GitHub Extraction Configuration Row",
-  "required": [],
+  "title": "GitHub Extractor — Row Configuration",
+  "required": ["endpoint"],
   "properties": {
-    "organization_name": {
-      "title": "Organization Name",
+    "endpoint": {
       "type": "string",
+      "title": "Data Source",
+      "enum": [
+        "user",
+        "user_repos",
+        "user_orgs",
+        "organizations",
+        "organization_members",
+        "organization_teams",
+        "team_members",
+        "organization_repositories",
+        "organization_events",
+        "organization_outside_collaborators",
+        "repository",
+        "repository_branches",
+        "repository_tags",
+        "repository_commits",
+        "repository_contributors",
+        "repository_collaborators",
+        "repository_languages",
+        "repository_topics",
+        "repository_releases",
+        "repository_issues",
+        "repository_issue_comments",
+        "repository_pulls",
+        "repository_pull_reviews",
+        "repository_pull_review_comments",
+        "repository_labels",
+        "repository_milestones",
+        "repository_stargazers",
+        "repository_subscribers",
+        "repository_forks",
+        "repository_workflows",
+        "repository_workflow_runs",
+        "repository_deployments",
+        "repository_webhooks",
+        "graphql_query"
+      ],
+      "options": {
+        "enum_titles": [
+          "Authenticated User",
+          "User Repositories",
+          "User Organizations",
+          "Organization",
+          "Organization Members",
+          "Organization Teams",
+          "Team Members",
+          "Organization Repositories",
+          "Organization Events",
+          "Organization Outside Collaborators",
+          "Repository",
+          "Repository Branches",
+          "Repository Tags",
+          "Repository Commits",
+          "Repository Contributors",
+          "Repository Collaborators",
+          "Repository Languages",
+          "Repository Topics",
+          "Repository Releases",
+          "Repository Issues",
+          "Repository Issue Comments",
+          "Repository Pull Requests",
+          "Repository Pull Request Reviews",
+          "Repository Pull Request Review Comments",
+          "Repository Labels",
+          "Repository Milestones",
+          "Repository Stargazers",
+          "Repository Subscribers",
+          "Repository Forks",
+          "Repository Workflows",
+          "Repository Workflow Runs",
+          "Repository Deployments",
+          "Repository Webhooks",
+          "GraphQL Query (advanced)"
+        ]
+      },
+      "propertyOrder": 10
+    },
+    "organization": {
+      "type": "array",
+      "title": "Organizations",
+      "format": "select",
+      "uniqueItems": true,
+      "default": [],
+      "items": {
+        "type": "string",
+        "enum": []
+      },
+      "description": "Leave empty to include all organizations you belong to.",
+      "propertyOrder": 20,
+      "options": {
+        "async": {
+          "label": "Load Organizations",
+          "action": "listOrganizations",
+          "autoload": true
+        },
+        "tooltip": "Pick one or more organizations. Empty = all organizations your token can access. For repository data sources this also scopes which repositories are offered below.",
+        "dependencies": {
+          "endpoint": [
+            "organizations",
+            "organization_members",
+            "organization_teams",
+            "team_members",
+            "organization_repositories",
+            "organization_events",
+            "organization_outside_collaborators",
+            "repository",
+            "repository_branches",
+            "repository_tags",
+            "repository_commits",
+            "repository_contributors",
+            "repository_collaborators",
+            "repository_languages",
+            "repository_topics",
+            "repository_releases",
+            "repository_issues",
+            "repository_issue_comments",
+            "repository_pulls",
+            "repository_pull_reviews",
+            "repository_pull_review_comments",
+            "repository_labels",
+            "repository_milestones",
+            "repository_stargazers",
+            "repository_subscribers",
+            "repository_forks",
+            "repository_workflows",
+            "repository_workflow_runs",
+            "repository_deployments",
+            "repository_webhooks"
+          ]
+        }
+      }
+    },
+    "team_slug": {
+      "type": "array",
+      "title": "Teams",
+      "format": "select",
+      "uniqueItems": true,
+      "default": [],
+      "items": {
+        "type": "string",
+        "enum": []
+      },
+      "description": "Leave empty to include all teams in the selected organization(s).",
       "propertyOrder": 30,
-      "description": "GitHub organization name (required for organization-related endpoints)"
+      "options": {
+        "async": {
+          "label": "Load Teams",
+          "action": "listTeams",
+          "autoload": ["organization"]
+        },
+        "tooltip": "Pick one or more teams. Empty = all teams in the selected organization(s).",
+        "dependencies": {
+          "endpoint": ["team_members"]
+        }
+      }
     },
-    "repository_owner": {
-      "title": "Repository Owner",
-      "type": "string",
+    "repository": {
+      "type": "array",
+      "title": "Repositories",
+      "format": "select",
+      "uniqueItems": true,
+      "default": [],
+      "items": {
+        "type": "string",
+        "enum": []
+      },
+      "description": "Leave empty to include all repositories in the selected organization(s).",
       "propertyOrder": 40,
-      "description": "Repository owner username or organization name (required for repository-specific endpoints)"
+      "options": {
+        "async": {
+          "label": "Load Repositories",
+          "action": "listRepositories",
+          "autoload": ["organization", "endpoint"]
+        },
+        "tooltip": "Pick one or more repositories. Empty = all repositories in the selected organization(s), or all of your repositories if no organization is set.",
+        "dependencies": {
+          "endpoint": [
+            "repository",
+            "repository_branches",
+            "repository_tags",
+            "repository_commits",
+            "repository_contributors",
+            "repository_collaborators",
+            "repository_languages",
+            "repository_topics",
+            "repository_releases",
+            "repository_issues",
+            "repository_issue_comments",
+            "repository_pulls",
+            "repository_pull_reviews",
+            "repository_pull_review_comments",
+            "repository_labels",
+            "repository_milestones",
+            "repository_stargazers",
+            "repository_subscribers",
+            "repository_forks",
+            "repository_workflows",
+            "repository_workflow_runs",
+            "repository_deployments",
+            "repository_webhooks"
+          ]
+        }
+      }
     },
-    "repository_name": {
-      "title": "Repository Name",
-      "type": "string",
+    "pull_number": {
+      "type": "integer",
+      "title": "Pull Request Number (optional)",
+      "description": "Set to fetch reviews for one specific pull request; leave empty for all pull requests.",
       "propertyOrder": 50,
-      "description": "Repository name (required for repository-specific endpoints)"
+      "options": {
+        "tooltip": "Targeted mode: with a number set, select exactly one repository and only that pull request's reviews are fetched. Leave empty to fetch reviews for every pull request in the selected repositories.",
+        "dependencies": {
+          "endpoint": ["repository_pull_reviews"]
+        }
+      }
+    },
+    "load_type": {
+      "type": "string",
+      "title": "Load Type (optional)",
+      "enum": ["full_load", "incremental_load"],
+      "options": {
+        "enum_titles": ["Full Load", "Incremental Load"],
+        "dependencies": {
+          "endpoint": [
+            "user_repos",
+            "organization_repositories",
+            "repository_commits",
+            "repository_issues",
+            "repository_issue_comments",
+            "repository_pulls",
+            "repository_pull_reviews",
+            "repository_pull_review_comments",
+            "repository_workflow_runs",
+            "graphql_query"
+          ]
+        }
+      },
+      "default": "incremental_load",
+      "propertyOrder": 60
+    },
+    "since": {
+      "type": "string",
+      "title": "Since (optional)",
+      "default": "",
+      "description": "Lower bound of the fetch window — only records at or after this are fetched.",
+      "propertyOrder": 70,
+      "options": {
+        "tooltip": "ISO-8601 instant (<code>2024-01-01T00:00:00Z</code>) or a relative phrase (<code>90 days ago</code>, <code>yesterday</code>). Applied on EVERY run — widen it to backfill. Empty = no lower bound (all history). For the GraphQL Query data source, write <code>{{since}}</code> in your query or variables to insert this resolved date (YYYY-MM-DD) at runtime — e.g. <code>updated:&gt;={{since}}</code> for a rolling window.",
+        "dependencies": {
+          "endpoint": [
+            "user_repos",
+            "organization_repositories",
+            "repository_commits",
+            "repository_issues",
+            "repository_issue_comments",
+            "repository_pulls",
+            "repository_pull_reviews",
+            "repository_pull_review_comments",
+            "repository_workflow_runs",
+            "graphql_query"
+          ]
+        }
+      }
+    },
+    "until": {
+      "type": "string",
+      "title": "Until (optional)",
+      "default": "",
+      "description": "Upper bound of the fetch window — only records at or before this are fetched.",
+      "propertyOrder": 71,
+      "options": {
+        "tooltip": "ISO-8601 instant or a relative phrase (<code>now</code>, <code>yesterday</code>). Empty = up to now. Together with Since this is a two-sided window (e.g. Since '90 days ago', Until 'now' = the last 90 days). For the GraphQL Query data source, write <code>{{until}}</code> in your query or variables to insert this resolved date (YYYY-MM-DD) at runtime.",
+        "dependencies": {
+          "endpoint": [
+            "user_repos",
+            "organization_repositories",
+            "repository_commits",
+            "repository_issues",
+            "repository_issue_comments",
+            "repository_pulls",
+            "repository_pull_reviews",
+            "repository_pull_review_comments",
+            "repository_workflow_runs",
+            "graphql_query"
+          ]
+        }
+      }
     },
     "issue_state": {
-      "title": "Issue State",
       "type": "string",
-      "enum": [
-        "all",
-        "open",
-        "closed"
-      ],
+      "title": "Issue State (optional)",
+      "enum": ["all", "open", "closed"],
+      "options": {
+        "enum_titles": ["All", "Open", "Closed"],
+        "dependencies": {
+          "endpoint": ["repository_issues"]
+        }
+      },
       "default": "all",
-      "propertyOrder": 60,
-      "description": "Filter issues by state (for repository_issues endpoint)"
+      "propertyOrder": 80
     },
-    "commits_since": {
-      "title": "Commits Since",
+    "pull_state": {
       "type": "string",
-      "propertyOrder": 70,
-      "description": "Only fetch commits after this date (ISO 8601 format, e.g., 2024-01-01T00:00:00Z). Leave empty for all commits (for repository_commits endpoint)"
+      "title": "Pull Request State (optional)",
+      "enum": ["all", "open", "closed"],
+      "options": {
+        "enum_titles": ["All", "Open", "Closed"],
+        "dependencies": {
+          "endpoint": ["repository_pulls"]
+        }
+      },
+      "default": "all",
+      "propertyOrder": 81
+    },
+    "milestone_state": {
+      "type": "string",
+      "title": "Milestone State (optional)",
+      "enum": ["all", "open", "closed"],
+      "options": {
+        "enum_titles": ["All", "Open", "Closed"],
+        "dependencies": {
+          "endpoint": ["repository_milestones"]
+        }
+      },
+      "default": "all",
+      "propertyOrder": 82
+    },
+    "query_template": {
+      "type": "string",
+      "title": "Query Template",
+      "enum": ["custom", "org_ai_config_files", "org_pull_request_reviews", "org_pull_requests", "org_repository_languages", "org_commits"],
+      "default": "custom",
+      "propertyOrder": 90,
+      "options": {
+        "enum_titles": ["Custom (write your own)", "Org repos: AI config files (AGENTS.md, CLAUDE.md)", "Repository: Open PRs with review decision", "Org: Pull Requests + reviews + comments", "Org: Repository languages", "Org: Recent commits"],
+        "tooltip": "Pick a built-in query, or Custom to write your own GraphQL.",
+        "dependencies": { "endpoint": ["graphql_query"] }
+      }
+    },
+    "gql_query": {
+      "type": "string",
+      "format": "textarea",
+      "title": "GraphQL Query",
+      "default": "",
+      "description": "A GitHub GraphQL query. For pagination, select pageInfo { hasNextPage endCursor } and declare a $cursor variable used as after: $cursor.",
+      "propertyOrder": 91,
+      "options": {
+        "tooltip": "Runs against https://api.github.com/graphql with your token. The result is flattened into one table (objects become parent_child columns; nested lists become a JSON cell).",
+        "dependencies": { "endpoint": ["graphql_query"], "query_template": ["custom"] }
+      }
+    },
+    "gql_variables": {
+      "type": "string",
+      "format": "textarea",
+      "title": "GraphQL Variables (JSON)",
+      "default": "",
+      "description": "A JSON object of variables for your query, e.g. {\"org\": \"acme\"}. Leave blank for none.",
+      "propertyOrder": 92,
+      "options": { "dependencies": { "endpoint": ["graphql_query"], "query_template": ["custom"] } }
+    },
+    "gql_row_path": {
+      "type": "string",
+      "title": "Row path (advanced)",
+      "default": "",
+      "propertyOrder": 93,
+      "options": {
+        "tooltip": "Dotted path under data to the list whose items become your table rows, e.g. organization.repositories.nodes. Leave empty to detect it automatically; set it only when the query returns more than one list and detection can't choose.",
+        "dependencies": { "endpoint": ["graphql_query"], "query_template": ["custom"] }
+      }
+    },
+    "output_table": {
+      "type": "string",
+      "title": "Output table name",
+      "default": "",
+      "description": "Name of the output table (letters, digits, underscore, hyphen). Required in Custom mode; templates default it.",
+      "propertyOrder": 94,
+      "options": { "dependencies": { "endpoint": ["graphql_query"] } }
+    },
+    "primary_key": {
+      "type": "string",
+      "title": "Primary key (optional)",
+      "default": "",
+      "description": "Comma-separated result column name(s) for incremental upsert. Empty = full load only.",
+      "propertyOrder": 95,
+      "options": {
+        "tooltip": "Column names AFTER flattening (e.g. nameWithOwner). Used only when Load Type is Incremental.",
+        "dependencies": { "endpoint": ["graphql_query"] }
+      }
+    },
+    "gql_org": {
+      "type": "string",
+      "title": "Organization",
+      "format": "select",
+      "enum": [],
+      "default": "",
+      "propertyOrder": 96,
+      "options": {
+        "async": {
+          "label": "Load Organizations",
+          "action": "listOrganizations",
+          "autoload": true
+        },
+        "tooltip": "Organization login the template runs against.",
+        "dependencies": { "endpoint": ["graphql_query"], "query_template": ["org_ai_config_files", "org_pull_request_reviews", "org_pull_requests", "org_repository_languages", "org_commits"] }
+      }
+    },
+    "gql_repo": {
+      "type": "string",
+      "title": "Repository",
+      "format": "select",
+      "enum": [],
+      "default": "",
+      "propertyOrder": 97,
+      "options": {
+        "async": {
+          "label": "Load Repositories",
+          "action": "listRepositories",
+          "autoload": ["gql_org"]
+        },
+        "tooltip": "Repository (owner/repo) for the Open PRs template.",
+        "dependencies": { "endpoint": ["graphql_query"], "query_template": ["org_pull_request_reviews"] }
+      }
+    },
+    "gql_filenames": {
+      "type": "array",
+      "title": "File names",
+      "format": "select",
+      "uniqueItems": true,
+      "default": ["AGENTS.md", "CLAUDE.md"],
+      "items": { "type": "string" },
+      "propertyOrder": 98,
+      "options": {
+        "tooltip": "Files to probe per repo (one content column group each). Default AGENTS.md + CLAUDE.md.",
+        "dependencies": { "endpoint": ["graphql_query"], "query_template": ["org_ai_config_files"] }
+      }
     }
   }
 }

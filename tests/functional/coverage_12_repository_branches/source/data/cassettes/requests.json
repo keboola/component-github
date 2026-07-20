@@ -1,0 +1,44 @@
+{
+  "_metadata": {
+    "freeze_time": "2026-06-23T12:00:00+00:00",
+    "recorded_at": "2026-06-23T12:00:00+00:00"
+  },
+  "interactions": [
+    {
+      "request": {
+        "body": null,
+        "headers": {
+          "Accept": [
+            "application/vnd.github+json"
+          ],
+          "Authorization": [
+            "Bearer ***"
+          ]
+        },
+        "method": "GET",
+        "uri": "https://api.github.com/repos/octocat/Spoon-Knife/branches?per_page=100"
+      },
+      "response": {
+        "body": {
+          "string": "[{\"name\": \"change-the-title\", \"commit\": {\"sha\": \"f439fc5710cd87a4025247e8f75901cdadf5333d\", \"url\": \"https://api.github.com/repos/octocat/Spoon-Knife/commits/f439fc5710cd87a4025247e8f75901cdadf5333d\"}, \"protected\": false}, {\"name\": \"main\", \"commit\": {\"sha\": \"d0dd1f61b33d64e29d8bc1372a94ef6a2fee76a9\", \"url\": \"https://api.github.com/repos/octocat/Spoon-Knife/commits/d0dd1f61b33d64e29d8bc1372a94ef6a2fee76a9\"}, \"protected\": false}]"
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json; charset=utf-8"
+          ],
+          "X-RateLimit-Remaining": [
+            "4599"
+          ],
+          "X-RateLimit-Reset": [
+            "1782249283"
+          ]
+        },
+        "status": {
+          "code": 200,
+          "message": "OK"
+        }
+      }
+    }
+  ],
+  "version": 1
+}
