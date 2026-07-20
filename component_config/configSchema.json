@@ -6,7 +6,7 @@
     "auth_type": {
       "type": "string",
       "title": "Authentication Method",
-      "description": "How to authenticate to GitHub: a Personal Access Token you supply, or OAuth (authorize via the button below).",
+      "description": "How to authenticate to GitHub: a Personal Access Token you supply, or OAuth (authorize via the authorization button above).",
       "enum": ["pat", "oauth"],
       "options": {
         "enum_titles": ["Personal Access Token", "OAuth"]
