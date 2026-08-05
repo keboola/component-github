@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import unittest
 from pathlib import Path
@@ -102,6 +103,35 @@ def test_run_graphql_custom_writes_dynamic_table(tmp_path):
     # union columns, first-seen order: nameWithOwner, defaultBranchRef_name
     assert rows[0] == ["o/a", "main"]
     assert rows[1] == ["o/b", ""]
+
+
+def test_run_graphql_empty_result_leaves_the_table_untouched(tmp_path, caplog):
+    """An empty result must not fabricate a primary-key-only schema.
+
+    Falling back to `primary_key` as the column set declares a one-column output; Storage then
+    rejects the load against the real (wider) table with a message about column counts that says
+    nothing about the actual cause. Writing nothing keeps the previous contents instead.
+    """
+    comp = _component(
+        tmp_path,
+        {
+            **PAT,
+            "endpoint": "graphql_query",
+            "query_template": "org_commits",
+            "gql_org": "acme",
+            "since": "90 days ago",
+            "load_type": "incremental_load",
+        },
+    )
+    comp.client.graphql = MagicMock(return_value=([], "organization.repositories.nodes"))
+
+    with caplog.at_level(logging.WARNING):
+        comp.run()
+
+    out = Path(comp.tables_out_path)
+    assert list(out.iterdir()) == [], "no table and no manifest may be written for an empty result"
+    assert "returned no rows" in caplog.text
+    assert "left unchanged" in caplog.text
 
 
 def test_run_graphql_template_uses_registry(tmp_path):

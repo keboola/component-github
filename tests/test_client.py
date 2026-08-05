@@ -278,6 +278,59 @@ def test_graphql_single_page_detects_rows_path(client):
 
 
 @responses.activate
+def test_graphql_empty_connection_warns_with_reported_count(client, caplog):
+    """An org whose repositories connection reports totalCount 0 is how GitHub says
+    "this token may not enumerate these" — the count has to reach the log, or the only
+    symptom is an empty table."""
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json={
+            "data": {
+                "organization": {
+                    "repositories": {
+                        "totalCount": 0,
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        },
+        status=200,
+    )
+    with caplog.at_level(logging.WARNING):
+        rows, _resolved = client.graphql("query($cursor:String){ x }", {"org": "o"}, "organization.repositories.nodes")
+    assert rows == []
+    assert "returned no rows at 'organization.repositories.nodes'" in caplog.text
+    assert "'totalCount': 0" in caplog.text
+    assert "permissions" in caplog.text
+
+
+@responses.activate
+def test_graphql_non_empty_result_does_not_warn(client, caplog):
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json={
+            "data": {
+                "organization": {
+                    "repositories": {
+                        "totalCount": 1,
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [{"nameWithOwner": "o/a"}],
+                    }
+                }
+            }
+        },
+        status=200,
+    )
+    with caplog.at_level(logging.WARNING):
+        rows, _resolved = client.graphql("query($cursor:String){ x }", {}, "organization.repositories.nodes")
+    assert len(rows) == 1
+    assert "returned no rows" not in caplog.text
+
+
+@responses.activate
 def test_graphql_errors_with_null_data_raises(client):
     responses.add(
         responses.POST,

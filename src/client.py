@@ -243,8 +243,33 @@ class GitHubClient:
             page_info = read_path(data, f"{conn}.pageInfo") if conn else None
             has_next = isinstance(page_info, dict) and page_info.get("hasNextPage") and page_info.get("endCursor")
             if not (supports_cursor and has_next):
+                if not all_rows:
+                    self._warn_empty_graphql_result(data, resolved)
                 return all_rows, (resolved or "")
             vars_state["cursor"] = page_info["endCursor"]
+
+    @staticmethod
+    def _warn_empty_graphql_result(data: dict[str, Any], rows_path: str | None) -> None:
+        """Say why a GraphQL query produced nothing, quoting whatever count the connection reports.
+
+        GitHub answers "this token may not enumerate these" with an empty connection rather than an
+        error, so an empty result is indistinguishable from "there is genuinely nothing here" unless
+        the reported count is logged next to it.
+        """
+        conn = connection_path(rows_path) if rows_path else None
+        counts = {}
+        if conn:
+            for field in ("totalCount", "issueCount", "repositoryCount"):
+                value = read_path(data, f"{conn}.{field}")
+                if value is not None:
+                    counts[field] = value
+        logging.warning(
+            "GitHub GraphQL returned no rows at '%s'%s. An empty connection is also how GitHub reports "
+            "resources the token may not enumerate — if this is unexpected, check the token's permissions "
+            "for this resource rather than the query.",
+            rows_path,
+            f" (the connection reports {counts})" if counts else "",
+        )
 
     def graphql_sharded(
         self,
