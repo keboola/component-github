@@ -201,7 +201,9 @@ class Component(ComponentBase):
             # near the cause. Leaving the table untouched keeps its contents; the warning (plus the
             # client's own diagnostic) says what actually happened.
             logging.warning(
-                "GraphQL query (template=%s, rows path='%s') returned no rows; table '%s' left unchanged.",
+                "GraphQL query (template=%s, rows path='%s') returned no rows, so nothing was written: "
+                "table '%s' still holds the PREVIOUS run's rows and is now stale. A green job here does "
+                "NOT mean the source is empty — see the client's warning above for what the API reported.",
                 self.cfg.query_template,
                 resolved,
                 output_table,

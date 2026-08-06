@@ -131,7 +131,8 @@ def test_run_graphql_empty_result_leaves_the_table_untouched(tmp_path, caplog):
     out = Path(comp.tables_out_path)
     assert list(out.iterdir()) == [], "no table and no manifest may be written for an empty result"
     assert "returned no rows" in caplog.text
-    assert "left unchanged" in caplog.text
+    assert "PREVIOUS run's rows" in caplog.text, "a green job must not read as 'the source is empty now'"
+    assert "stale" in caplog.text
 
 
 def test_run_graphql_template_uses_registry(tmp_path):

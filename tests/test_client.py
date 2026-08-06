@@ -545,6 +545,48 @@ def test_graphql_sharded_bisects_on_large_issue_count(client):
 
 
 @responses.activate
+def test_graphql_sharded_quiet_shard_does_not_warn(client, caplog):
+    """A quiet sub-range is normal for bisection and must not be reported as a token problem.
+
+    The empty-result warning names token permissions as a likely cause, so firing it per shard
+    would put a false trail in the log of a run that returned rows.
+    """
+    # Root probe: 1500 → bisect
+    responses.add(responses.POST, "https://api.github.com/graphql", json=_search_response(1500, []), status=200)
+    # Left half: probe says 0, fetch returns nothing — a legitimately quiet range
+    responses.add(responses.POST, "https://api.github.com/graphql", json=_search_response(0, []), status=200)
+    responses.add(responses.POST, "https://api.github.com/graphql", json=_search_response(0, []), status=200)
+    # Right half: probe 900, fetch returns rows
+    responses.add(responses.POST, "https://api.github.com/graphql", json=_search_response(900, []), status=200)
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json=_search_response(900, [{"id": "PR_B1"}, {"id": "PR_B2"}]),
+        status=200,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        rows, _resolved = client.graphql_sharded(SHARDED_QUERY, SHARDED_VARS, SHARDED_PATH, SINCE, UNTIL)
+
+    assert [r["id"] for r in rows] == ["PR_B1", "PR_B2"]
+    assert "returned no rows" not in caplog.text, "a quiet shard must not warn when the run returned rows"
+
+
+@responses.activate
+def test_graphql_sharded_warns_once_when_the_whole_window_is_empty(client, caplog):
+    """No rows at all across the union is worth a warning — once, quoting the window's own count."""
+    responses.add(responses.POST, "https://api.github.com/graphql", json=_search_response(0, []), status=200)
+    responses.add(responses.POST, "https://api.github.com/graphql", json=_search_response(0, []), status=200)
+
+    with caplog.at_level(logging.WARNING):
+        rows, _resolved = client.graphql_sharded(SHARDED_QUERY, SHARDED_VARS, SHARDED_PATH, SINCE, UNTIL)
+
+    assert rows == []
+    assert caplog.text.count("returned no rows") == 1, "exactly one warning for the whole run"
+    assert "'issueCount': 0" in caplog.text
+
+
+@responses.activate
 def test_graphql_sharded_deduplicates_boundary_ids(client):
     """A PR id appearing in both halves (boundary overlap) must appear only once in the output."""
     # Root probe → bisect
