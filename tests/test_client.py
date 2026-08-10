@@ -278,6 +278,59 @@ def test_graphql_single_page_detects_rows_path(client):
 
 
 @responses.activate
+def test_graphql_empty_connection_warns_with_reported_count(client, caplog):
+    """An org whose repositories connection reports totalCount 0 is how GitHub says
+    "this token may not enumerate these" — the count has to reach the log, or the only
+    symptom is an empty table."""
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json={
+            "data": {
+                "organization": {
+                    "repositories": {
+                        "totalCount": 0,
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        },
+        status=200,
+    )
+    with caplog.at_level(logging.WARNING):
+        rows, _resolved = client.graphql("query($cursor:String){ x }", {"org": "o"}, "organization.repositories.nodes")
+    assert rows == []
+    assert "returned no rows at 'organization.repositories.nodes'" in caplog.text
+    assert "'totalCount': 0" in caplog.text
+    assert "permissions" in caplog.text
+
+
+@responses.activate
+def test_graphql_non_empty_result_does_not_warn(client, caplog):
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json={
+            "data": {
+                "organization": {
+                    "repositories": {
+                        "totalCount": 1,
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [{"nameWithOwner": "o/a"}],
+                    }
+                }
+            }
+        },
+        status=200,
+    )
+    with caplog.at_level(logging.WARNING):
+        rows, _resolved = client.graphql("query($cursor:String){ x }", {}, "organization.repositories.nodes")
+    assert len(rows) == 1
+    assert "returned no rows" not in caplog.text
+
+
+@responses.activate
 def test_graphql_errors_with_null_data_raises(client):
     responses.add(
         responses.POST,
@@ -489,6 +542,48 @@ def test_graphql_sharded_bisects_on_large_issue_count(client):
     assert resolved == SHARDED_PATH
     assert [r["id"] for r in rows] == ["PR_A1", "PR_A2", "PR_B1", "PR_B2"]
     assert len(responses.calls) == 5
+
+
+@responses.activate
+def test_graphql_sharded_quiet_shard_does_not_warn(client, caplog):
+    """A quiet sub-range is normal for bisection and must not be reported as a token problem.
+
+    The empty-result warning names token permissions as a likely cause, so firing it per shard
+    would put a false trail in the log of a run that returned rows.
+    """
+    # Root probe: 1500 → bisect
+    responses.add(responses.POST, "https://api.github.com/graphql", json=_search_response(1500, []), status=200)
+    # Left half: probe says 0, fetch returns nothing — a legitimately quiet range
+    responses.add(responses.POST, "https://api.github.com/graphql", json=_search_response(0, []), status=200)
+    responses.add(responses.POST, "https://api.github.com/graphql", json=_search_response(0, []), status=200)
+    # Right half: probe 900, fetch returns rows
+    responses.add(responses.POST, "https://api.github.com/graphql", json=_search_response(900, []), status=200)
+    responses.add(
+        responses.POST,
+        "https://api.github.com/graphql",
+        json=_search_response(900, [{"id": "PR_B1"}, {"id": "PR_B2"}]),
+        status=200,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        rows, _resolved = client.graphql_sharded(SHARDED_QUERY, SHARDED_VARS, SHARDED_PATH, SINCE, UNTIL)
+
+    assert [r["id"] for r in rows] == ["PR_B1", "PR_B2"]
+    assert "returned no rows" not in caplog.text, "a quiet shard must not warn when the run returned rows"
+
+
+@responses.activate
+def test_graphql_sharded_warns_once_when_the_whole_window_is_empty(client, caplog):
+    """No rows at all across the union is worth a warning — once, quoting the window's own count."""
+    responses.add(responses.POST, "https://api.github.com/graphql", json=_search_response(0, []), status=200)
+    responses.add(responses.POST, "https://api.github.com/graphql", json=_search_response(0, []), status=200)
+
+    with caplog.at_level(logging.WARNING):
+        rows, _resolved = client.graphql_sharded(SHARDED_QUERY, SHARDED_VARS, SHARDED_PATH, SINCE, UNTIL)
+
+    assert rows == []
+    assert caplog.text.count("returned no rows") == 1, "exactly one warning for the whole run"
+    assert "'issueCount': 0" in caplog.text
 
 
 @responses.activate

@@ -216,15 +216,23 @@ class GitHubClient:
         Pagination follows the GraphQL cursor convention: it advances only when the query declares a
         `$cursor` variable AND the connection exposes `pageInfo {hasNextPage endCursor}`.
         """
-        return self._graphql_fetch_all(query, variables, rows_path)
+        rows, resolved, last_data = self._graphql_fetch_all(query, variables, rows_path)
+        if not rows:
+            self._warn_empty_graphql_result(last_data, resolved)
+        return rows, resolved
 
     def _graphql_fetch_all(
         self, query: str, variables: dict[str, Any], rows_path: str | None
-    ) -> tuple[list[dict[str, Any]], str]:
-        """Cursor-paginate one GraphQL query and return (all raw row nodes, resolved rows_path).
+    ) -> tuple[list[dict[str, Any]], str, dict[str, Any]]:
+        """Cursor-paginate one query; return (row nodes, resolved rows_path, last page's data).
 
         Extracted from graphql() so graphql_sharded() can reuse it per shard without changing
         graphql()'s public signature or behaviour.
+
+        The last page's data is returned for diagnostics only. The "no rows" warning deliberately
+        does NOT live here: graphql_sharded() calls this once per shard, and bisection routinely
+        produces quiet sub-ranges, so warning here would blame the token on runs that succeeded.
+        Both public entry points warn once, on their own totals.
         """
         vars_state: dict[str, Any] = dict(variables or {})
         supports_cursor = "$cursor" in query
@@ -243,8 +251,31 @@ class GitHubClient:
             page_info = read_path(data, f"{conn}.pageInfo") if conn else None
             has_next = isinstance(page_info, dict) and page_info.get("hasNextPage") and page_info.get("endCursor")
             if not (supports_cursor and has_next):
-                return all_rows, (resolved or "")
+                return all_rows, (resolved or ""), data
             vars_state["cursor"] = page_info["endCursor"]
+
+    @staticmethod
+    def _warn_empty_graphql_result(data: dict[str, Any], rows_path: str | None) -> None:
+        """Say why a GraphQL query produced nothing, quoting whatever count the connection reports.
+
+        GitHub answers "this token may not enumerate these" with an empty connection rather than an
+        error, so an empty result is indistinguishable from "there is genuinely nothing here" unless
+        the reported count is logged next to it.
+        """
+        conn = connection_path(rows_path) if rows_path else None
+        counts = {}
+        if conn:
+            for field in ("totalCount", "issueCount", "repositoryCount"):
+                value = read_path(data, f"{conn}.{field}")
+                if value is not None:
+                    counts[field] = value
+        logging.warning(
+            "GitHub GraphQL returned no rows at '%s'%s. An empty connection is also how GitHub reports "
+            "resources the token may not enumerate — if this is unexpected, check the token's permissions "
+            "for this resource rather than the query.",
+            rows_path,
+            f" (the connection reports {counts})" if counts else "",
+        )
 
     def graphql_sharded(
         self,
@@ -274,6 +305,8 @@ class GitHubClient:
         # FIFO queue of (lo, hi) datetime ranges to process.
         queue: list[tuple[Any, Any]] = [(since, until)]
         resolved_path: str | None = rows_path
+        # Last probe response, kept so an entirely empty run can quote the window's own issueCount.
+        last_probe: dict[str, Any] = {}
 
         # Dedup-by-id union: dict keyed by row["id"] for rows that have one; ordered list for all.
         seen_ids: dict[Any, None] = {}  # ordered dict used as ordered set
@@ -295,6 +328,7 @@ class GitHubClient:
 
             # Probe: one POST to read issueCount (no cursor pagination needed).
             probe_data = self._graphql_post(wq, wvs)
+            last_probe = probe_data
 
             # Resolve rows_path on the first probe when the caller passed None.
             if resolved_path is None:
@@ -312,7 +346,7 @@ class GitHubClient:
                     count_path,
                     GRAPHQL_SEARCH_CAP,
                 )
-                rows, resolved_path = self._graphql_fetch_all(wq, wvs, resolved_path)
+                rows, resolved_path, _last = self._graphql_fetch_all(wq, wvs, resolved_path)
                 _union_rows(rows)
                 break
 
@@ -340,9 +374,13 @@ class GitHubClient:
                 )
 
             # Fetch this shard in full (cursor pagination).
-            rows, resolved_path = self._graphql_fetch_all(wq, wvs, resolved_path)
+            rows, resolved_path, _last = self._graphql_fetch_all(wq, wvs, resolved_path)
             _union_rows(rows)
 
+        # Warn on the union, never per shard: bisection routinely produces quiet sub-ranges, and
+        # warning on those would blame the token on a run that returned plenty of rows overall.
+        if not ordered:
+            self._warn_empty_graphql_result(last_probe, resolved_path)
         return ordered, resolved_path or ""
 
     def _graphql_post(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:

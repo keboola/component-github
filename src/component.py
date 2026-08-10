@@ -180,7 +180,7 @@ class Component(ComponentBase):
                     "{{window}} requires a Since value, e.g. '90 days ago'. Set the Since field on this row."
                 )
             until_eff = until_dt or datetime.now(UTC)
-            raw_rows, _resolved = self.client.graphql_sharded(query, variables, rows_path, since_dt, until_eff)
+            raw_rows, resolved = self.client.graphql_sharded(query, variables, rows_path, since_dt, until_eff)
         else:
             # Substitute {{since}}/{{until}} with the resolved (dateparser) window dates so a GraphQL row can
             # roll its own window — e.g. `updated:>={{since}}` with Since = "60 days ago" (§ rolling window).
@@ -191,14 +191,29 @@ class Component(ComponentBase):
                 key: (apply_date_placeholders(val, since_s, until_s) if isinstance(val, str) else val)
                 for key, val in variables.items()
             }
-            raw_rows, _resolved = self.client.graphql(query, variables, rows_path)
+            raw_rows, resolved = self.client.graphql(query, variables, rows_path)
         rows = [flatten_graphql_node(node) for node in raw_rows]
+
+        if not rows:
+            # Deliberately do NOT fall back to the primary key as the column set. That declares a
+            # one-column schema, and Storage then rejects the load against the real table with a
+            # "does not contain the same number of columns as the schema" error that points nowhere
+            # near the cause. Leaving the table untouched keeps its contents; the warning (plus the
+            # client's own diagnostic) says what actually happened.
+            logging.warning(
+                "GraphQL query (template=%s, rows path='%s') returned no rows, so nothing was written: "
+                "table '%s' still holds the PREVIOUS run's rows and is now stale. A green job here does "
+                "NOT mean the source is empty — see the client's warning above for what the API reported.",
+                self.cfg.query_template,
+                resolved,
+                output_table,
+            )
+            return
 
         incremental = self.cfg.incremental_load and bool(primary_key)
         if self.cfg.incremental_load and not primary_key:
             logging.warning("Incremental load requested but no primary key set; writing a full load instead.")
-        columns = collect_columns(rows) or list(primary_key)
-        self._write_dynamic_table(output_table, columns, rows, primary_key, incremental)
+        self._write_dynamic_table(output_table, collect_columns(rows), rows, primary_key, incremental)
 
     def _graphql_template_params(self) -> dict[str, Any]:
         return {"org": self.cfg.gql_org, "repo": self.cfg.gql_repo, "filenames": self.cfg.gql_filenames}
