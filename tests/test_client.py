@@ -651,3 +651,50 @@ def test_graphql_sharded_no_issue_count_falls_back_with_warning(client, caplog):
         rows, _ = client.graphql_sharded(SHARDED_QUERY, SHARDED_VARS, SHARDED_PATH, SINCE, UNTIL)
     assert [r["id"] for r in rows] == ["PR_X"]
     assert "issueCount" in caplog.text
+
+
+# --------------------------------------------------------------- Enterprise API base URL (CFTL-858)
+
+
+def test_default_base_url_is_github_com():
+    """Omitting base_url keeps the public github.com API — existing configs are untouched."""
+    assert GitHubClient(token="ghp_test").base_url == "https://api.github.com"
+
+
+@pytest.mark.parametrize(
+    ("base_url", "expected_graphql"),
+    [
+        # github.com and Enterprise Cloud with data residency: GraphQL hangs off the REST base.
+        ("https://api.github.com", "https://api.github.com/graphql"),
+        ("https://api.example.ghe.com", "https://api.example.ghe.com/graphql"),
+        ("https://api.example.ghe.com/", "https://api.example.ghe.com/graphql"),
+        # Enterprise Server: REST is /api/v3 but GraphQL is /api/graphql, NOT /api/v3/graphql.
+        ("https://ghe.example.com/api/v3", "https://ghe.example.com/api/graphql"),
+    ],
+)
+def test_graphql_url_derivation(base_url, expected_graphql):
+    """The GraphQL endpoint is derived per GitHub flavour, not blindly appended to the REST base."""
+    assert GitHubClient(token="ghp_test", base_url=base_url).graphql_url == expected_graphql
+
+
+@responses.activate
+def test_fetch_uses_custom_base_url():
+    """A custom base_url routes the REST fetch path at the Enterprise host."""
+    client = GitHubClient(token="ghp_test", base_url="https://api.example.ghe.com", sleep=lambda _s: None)
+    responses.add(
+        responses.GET,
+        "https://api.example.ghe.com/repos/o/r/issues",
+        json=[{"id": 1, "number": 1}],
+        status=200,
+    )
+    records = list(client.fetch(ENDPOINTS["repository_issues"], "/repos/o/r/issues"))
+    assert len(records) == 1
+    assert str(responses.calls[0].request.url).startswith("https://api.example.ghe.com/")
+
+
+@responses.activate
+def test_sync_action_get_uses_custom_base_url():
+    """The sync-action path (dropdowns, Test Connection) follows the same custom base URL."""
+    client = GitHubClient(token="ghp_test", base_url="https://ghe.example.com/api/v3", sleep=lambda _s: None)
+    responses.add(responses.GET, "https://ghe.example.com/api/v3/user/orgs", json=[{"login": "acme"}], status=200)
+    assert client.get_json_array("/user/orgs") == [{"login": "acme"}]

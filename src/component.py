@@ -19,7 +19,7 @@ from keboola.component.dao import BaseType, ColumnDefinition, SupportedDataTypes
 from keboola.component.exceptions import UserException
 from keboola.component.sync_actions import SelectElement
 
-from client import GitHubClient
+from client import BASE_URL, GitHubClient
 from configuration import AuthType, Configuration
 from credentials import resolve_token
 from endpoints import (
@@ -98,7 +98,10 @@ class Component(ComponentBase):
     def __init__(self) -> None:
         super().__init__()
         self.cfg = Configuration(**self.configuration.parameters)
-        self.client = GitHubClient(token=self._resolve_token())
+        self.client = GitHubClient(
+            token=self._resolve_token(),
+            base_url=self.cfg.api_base_url or BASE_URL,
+        )
 
     # ----------------------------------------------------------------------------- run
     def run(self) -> None:
@@ -499,8 +502,21 @@ class Component(ComponentBase):
     # --------------------------------------------------------------------- sync actions
     @sync_action("testConnection")
     def test_connection(self) -> None:
-        """Validate the token against the free ``GET /rate_limit`` endpoint."""
-        self._call_rate_limit()
+        """Validate the token against the free ``GET /rate_limit`` endpoint.
+
+        GitHub Enterprise Server disables rate limiting by default and then serves 404 for
+        ``/rate_limit``. There a 404 means "this host has no such endpoint", not "bad token", so
+        falling through would reject a perfectly good Enterprise PAT with a message about
+        organization and repository names the user has not even entered yet. Retry once against
+        ``GET /user``, which every GitHub flavour exposes. github.com always serves
+        ``/rate_limit``, so this fallback never runs for it.
+        """
+        try:
+            self._call_rate_limit()
+        except UserException as exc:
+            if "(HTTP 404)" not in str(exc):
+                raise
+            self.client.get_response("/user")
 
     @sync_action("listOrganizations")
     def list_organizations(self) -> list[SelectElement]:

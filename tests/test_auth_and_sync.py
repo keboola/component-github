@@ -319,3 +319,64 @@ def test_row_schema_has_graphql_data_source():
     for field in ("output_table", "primary_key"):
         deps = schema["properties"][field]["options"]["dependencies"]
         assert deps == {"endpoint": ["graphql_query"]}, field
+
+
+# --------------------------------------------------------------- Enterprise API base URL (CFTL-858)
+
+
+def test_client_gets_github_com_base_url_by_default(tmp_path):
+    """No api_base_url in the config -> the client is built against github.com, as before."""
+    config = {"parameters": {"auth_type": "pat", "#github_token": "ghp_x", "endpoint": "repository"}}
+    data_dir = _datadir(tmp_path, config)
+    with mock.patch.dict(os.environ, {"KBC_DATADIR": str(data_dir)}):
+        from component import Component
+
+        with mock.patch("component.GitHubClient") as client_cls:
+            Component()
+    assert client_cls.call_args.kwargs["base_url"] == "https://api.github.com"
+
+
+def test_client_gets_configured_enterprise_base_url(tmp_path):
+    """api_base_url is wired through to the client — the one line that makes the feature work."""
+    config = {
+        "parameters": {
+            "auth_type": "pat",
+            "#github_token": "ghp_x",
+            "api_base_url": "https://api.example.ghe.com",
+            "endpoint": "repository",
+        }
+    }
+    data_dir = _datadir(tmp_path, config)
+    with mock.patch.dict(os.environ, {"KBC_DATADIR": str(data_dir)}):
+        from component import Component
+
+        with mock.patch("component.GitHubClient") as client_cls:
+            Component()
+    assert client_cls.call_args.kwargs["base_url"] == "https://api.example.ghe.com"
+
+
+@responses.activate
+def test_test_connection_falls_back_to_user_when_rate_limit_is_404(tmp_path):
+    """Enterprise Server 404s /rate_limit when rate limiting is off — fall back to /user."""
+    config = {
+        "parameters": {
+            "auth_type": "pat",
+            "#github_token": "ghp_x",
+            "api_base_url": "https://ghe.example.com/api/v3",
+        }
+    }
+    responses.add(responses.GET, "https://ghe.example.com/api/v3/rate_limit", json={"message": "Not Found"}, status=404)
+    responses.add(responses.GET, "https://ghe.example.com/api/v3/user", json={"login": "octocat"}, status=200)
+    comp = _component(_datadir(tmp_path, config), patch_client=False)
+    comp.test_connection()  # must not raise
+    assert responses.calls[-1].request.url == "https://ghe.example.com/api/v3/user"
+
+
+@responses.activate
+def test_test_connection_still_fails_on_bad_token(tmp_path):
+    """The 404 fallback must not swallow a real 401 — a bad token is still rejected."""
+    config = {"parameters": {"auth_type": "pat", "#github_token": "ghp_bad"}}
+    responses.add(responses.GET, "https://api.github.com/rate_limit", json={"message": "Bad creds"}, status=401)
+    comp = _component(_datadir(tmp_path, config), patch_client=False)
+    with pytest.raises(UserException):
+        comp._call_rate_limit()

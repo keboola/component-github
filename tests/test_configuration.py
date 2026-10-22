@@ -279,3 +279,81 @@ def test_graphql_org_commits_requires_org():
 def test_graphql_org_commits_with_org_constructs():
     cfg = Configuration(auth_type="pat", **GQL, query_template="org_commits", gql_org="acme")
     assert cfg.query_template == "org_commits"
+
+
+# --------------------------------------------------------------- Enterprise API base URL (CFTL-858)
+
+
+def test_api_base_url_defaults_to_empty():
+    """An unset API Base URL stays empty — the component then falls back to github.com."""
+    cfg = Configuration(auth_type="pat", **{"#github_token": "ghp_x"})
+    assert cfg.api_base_url == ""
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("https://api.example.ghe.com", "https://api.example.ghe.com"),
+        ("https://api.example.ghe.com/", "https://api.example.ghe.com"),
+        ("  https://api.example.ghe.com///  ", "https://api.example.ghe.com"),
+        ("https://ghe.example.com/api/v3", "https://ghe.example.com/api/v3"),
+    ],
+)
+def test_api_base_url_is_cleaned(raw, expected):
+    """Whitespace and trailing slashes are stripped off a pasted URL."""
+    cfg = Configuration(auth_type="pat", api_base_url=raw, **{"#github_token": "ghp_x"})
+    assert cfg.api_base_url == expected
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "api.example.ghe.com",  # bare host, no scheme
+        "ftp://api.example.ghe.com",  # wrong scheme
+        "not a url",
+        "https://",  # no host
+        "http://ghe.example.com/api/v3",  # cleartext would send the PAT unencrypted
+    ],
+)
+def test_api_base_url_must_be_absolute_https_url(bad):
+    """A bare host, a wrong scheme, or a typo is a clean UserException, not a late network error."""
+    with pytest.raises(UserException, match="must be an absolute https URL"):
+        Configuration(auth_type="pat", api_base_url=bad, **{"#github_token": "ghp_x"})
+
+
+def test_api_base_url_rejects_embedded_credentials():
+    """Userinfo is echoed into the client's network-error message, so it would leak into job logs."""
+    with pytest.raises(UserException, match="must not contain a username or password"):
+        Configuration(
+            auth_type="pat",
+            api_base_url="https://user:ghp_secret@ghe.example.com/api/v3",
+            **{"#github_token": "ghp_x"},
+        )
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["https://ghe.example.com/api/v3?x=1", "https://ghe.example.com/api/v3#frag"],
+)
+def test_api_base_url_rejects_query_and_fragment(bad):
+    """A query/fragment would be concatenated into the MIDDLE of every request path."""
+    with pytest.raises(UserException, match="no query string"):
+        Configuration(auth_type="pat", api_base_url=bad, **{"#github_token": "ghp_x"})
+
+
+def test_api_base_url_with_oauth_raises():
+    """OAuth + an Enterprise host is rejected: Keboola's OAuth app only exists on github.com."""
+    with pytest.raises(UserException, match="OAuth cannot authenticate to a GitHub Enterprise host"):
+        Configuration(auth_type="oauth", api_base_url="https://api.example.ghe.com")
+
+
+def test_oauth_without_api_base_url_is_unaffected():
+    """The OAuth guard fires only when an Enterprise host is set — github.com OAuth still loads."""
+    cfg = Configuration(auth_type="oauth")
+    assert cfg.api_base_url == ""
+
+
+def test_api_base_url_null_is_treated_as_empty():
+    """A field cleared in the UI can arrive as null — it means github.com, not a type error."""
+    cfg = Configuration(auth_type="pat", api_base_url=None, **{"#github_token": "ghp_x"})
+    assert cfg.api_base_url == ""

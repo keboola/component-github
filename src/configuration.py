@@ -12,6 +12,7 @@ import re
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Self
+from urllib.parse import urlparse
 
 import dateparser
 from keboola.component.exceptions import UserException
@@ -84,6 +85,10 @@ class Configuration(BaseModel):
     # --- root: authentication + global options ---
     auth_type: AuthType = AuthType.pat
     github_token: str = Field(alias="#github_token", default="")
+    # GitHub Enterprise support. Empty = github.com (client.BASE_URL), so every existing
+    # configuration keeps its current behaviour. A value points the whole component — REST,
+    # GraphQL and the sync actions alike — at an Enterprise host (§ CFTL-858).
+    api_base_url: str = ""
 
     # --- row: endpoint selection + target + filters ---
     # Targets are multi-select: empty list = "all in scope" (resolved in component._resolve_targets).
@@ -141,6 +146,24 @@ class Configuration(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
+    def _clean_api_base_url(cls, data: Any) -> Any:
+        """Strip whitespace and trailing slashes from a pasted base URL.
+
+        A copy-pasted URL routinely carries a trailing space or slash. Both would otherwise reach
+        DNS or the path join and fail with a confusing error far from the field that caused it.
+        """
+        if isinstance(data, dict):
+            value = data.get("api_base_url")
+            if isinstance(value, str):
+                data["api_base_url"] = value.strip().rstrip("/")
+            elif value is None and "api_base_url" in data:
+                # A field cleared in the UI can arrive as null; treat it as "use github.com"
+                # rather than letting Pydantic reject null for a str field.
+                data["api_base_url"] = ""
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
     def _coerce_graphql_inputs(cls, data: Any) -> Any:
         """Coerce GraphQL string inputs: variables JSON-string -> dict; comma lists -> list."""
         if not isinstance(data, dict):
@@ -176,6 +199,45 @@ class Configuration(BaseModel):
         elif gf_value is None:
             data.pop("gql_filenames", None)  # fall back to field default ["AGENTS.md", "CLAUDE.md"]
         return data
+
+    @model_validator(mode="after")
+    def _validate_api_base_url(self) -> Self:
+        # Empty is the normal case (github.com). A value must be an absolute http(s) URL: a bare
+        # host or a typo would otherwise surface as an opaque connection error at fetch time.
+        if not self.api_base_url:
+            return self
+        parsed = urlparse(self.api_base_url)
+        example = (
+            "for example 'https://api.SUBDOMAIN.ghe.com' (Enterprise Cloud with data residency) or "
+            "'https://HOSTNAME/api/v3' (Enterprise Server). Leave it empty to use github.com."
+        )
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise UserException(f"API Base URL '{self.api_base_url}' must be an absolute https URL, {example}")
+        # Userinfo would be echoed back in the client's network-error message and land in the job
+        # log, so a pasted 'https://user:token@host' would leak the token. Reject it at the field.
+        if parsed.username or parsed.password:
+            raise UserException(
+                "API Base URL must not contain a username or password. Put the credential in the "
+                "GitHub Personal Access Token field instead."
+            )
+        # A query/fragment/parameter is always a paste accident here, and it would be concatenated
+        # INTO the middle of every request path ('.../api/v3?x=1/repos/o/r/issues').
+        if parsed.query or parsed.fragment or parsed.params:
+            raise UserException(
+                f"API Base URL '{self.api_base_url}' must be a plain base URL with no query string "
+                f"or fragment, {example}"
+            )
+        # The Keboola OAuth broker holds ONE consumer per component id, registered against
+        # github.com, so it can only ever return a github.com token. Sending that token to an
+        # Enterprise host fails with an opaque 401; fail here with the reason instead.
+        if self.auth_type == AuthType.oauth:
+            raise UserException(
+                "OAuth cannot authenticate to a GitHub Enterprise host: Keboola's OAuth app is "
+                "registered on github.com. Either set the authentication method to 'Personal Access "
+                "Token' and use a token created on your Enterprise host, or clear the API Base URL "
+                "field to extract from github.com."
+            )
+        return self
 
     @model_validator(mode="after")
     def _validate_auth(self) -> Self:

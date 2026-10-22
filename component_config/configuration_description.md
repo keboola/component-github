@@ -7,7 +7,19 @@ Choose how the extractor authenticates to GitHub:
   If your organization enforces SAML SSO, SSO-authorize the token first. Use **Test Connection**
   to verify it before saving.
 - **OAuth** — authorize the component with your GitHub account; Keboola stores and refreshes the
-  token for you. No token field is shown in this mode.
+  token for you. No token field is shown in this mode. OAuth works on **github.com only**.
+
+### GitHub Enterprise
+
+Leave **GitHub API Base URL** empty to use github.com. Set it to your Enterprise REST API root to
+extract from a GitHub Enterprise host:
+
+- **Enterprise Cloud with data residency** (`SUBDOMAIN.ghe.com`) — `https://api.SUBDOMAIN.ghe.com`
+- **Enterprise Server** (self-hosted) — `https://HOSTNAME/api/v3`
+
+Enterprise hosts need a **Personal Access Token created on that host**. Keboola's OAuth app is
+registered on github.com, so the OAuth method cannot authenticate to an Enterprise host. If your
+Enterprise tenant restricts access by IP address, allow your Keboola stack's outbound IP addresses.
 
 ### Endpoint selection (Data Source)
 

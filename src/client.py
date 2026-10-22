@@ -88,6 +88,7 @@ class GitHubClient:
         sleep: Callable[[float], None] = time.sleep,
     ):
         self.base_url = base_url.rstrip("/")
+        self.graphql_url = self._derive_graphql_url(self.base_url)
         self.max_rate_limit_wait_seconds = max_rate_limit_wait_seconds
         self.max_retries = max_retries
         self._sleep = sleep  # injectable so tests don't actually block
@@ -99,6 +100,22 @@ class GitHubClient:
                 "X-GitHub-Api-Version": API_VERSION,
             }
         )
+
+    @staticmethod
+    def _derive_graphql_url(base_url: str) -> str:
+        """Return the GraphQL endpoint for a REST base URL.
+
+        The GraphQL path is NOT simply ``<rest base>/graphql`` on every GitHub flavour:
+
+        * github.com (``https://api.github.com``) and Enterprise Cloud with data residency
+          (``https://api.SUBDOMAIN.ghe.com``) serve GraphQL at ``<base>/graphql``.
+        * Enterprise Server exposes REST at ``https://HOSTNAME/api/v3`` but GraphQL at
+          ``https://HOSTNAME/api/graphql`` — appending ``/graphql`` to the REST base would
+          give ``/api/v3/graphql``, which does not exist.
+        """
+        if base_url.endswith("/api/v3"):
+            return f"{base_url[: -len('/v3')]}/graphql"
+        return f"{base_url}/graphql"
 
     # ----------------------------------------------------------------------------- fetch
     def fetch(
@@ -390,7 +407,7 @@ class GitHubClient:
     def _graphql_attempt(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         try:
             response = self.session.post(
-                f"{self.base_url}/graphql", json={"query": query, "variables": variables}, timeout=DEFAULT_TIMEOUT
+                self.graphql_url, json={"query": query, "variables": variables}, timeout=DEFAULT_TIMEOUT
             )
         except requests.RequestException as exc:
             raise _RetryableError(

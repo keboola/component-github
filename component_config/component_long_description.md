@@ -33,4 +33,9 @@ Each row writes one table to the component's default bucket (`in.c-keboola-ex-gi
 
 The component respects GitHub's authenticated rate limit (5,000 requests/hour, shared per token). When a limit is hit it waits and retries within a bounded budget; if the budget is exceeded it fails with an actionable message rather than crashing, and a re-run resumes from the last successful watermark.
 
+The component also supports **GitHub Enterprise**: set the optional *GitHub API Base URL* to your
+Enterprise REST API root (`https://api.SUBDOMAIN.ghe.com` for Enterprise Cloud with data residency,
+`https://HOSTNAME/api/v3` for Enterprise Server) and authenticate with a Personal Access Token
+created on that host. Leave the field empty for github.com.
+
 For full documentation see the [component repository](https://github.com/keboola/component-github).
