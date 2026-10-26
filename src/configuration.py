@@ -202,31 +202,37 @@ class Configuration(BaseModel):
 
     @model_validator(mode="after")
     def _validate_api_base_url(self) -> Self:
-        # Empty is the normal case (github.com). A value must be an absolute http(s) URL: a bare
-        # host or a typo would otherwise surface as an opaque connection error at fetch time.
+        """Reject a base URL that would fail late, fetch the wrong thing, or leak a credential.
+
+        No message echoes the value back. The URL may itself contain a secret (``user:token@host``
+        or a legacy ``?access_token=`` query), and a UserException raised here is written to the
+        job log — echoing it would leak the token through the very check that rejects it. The user
+        can already see the field they typed, so naming the problem is enough.
+        """
+        # Empty is the normal case (github.com) and must stay a pure early return: every existing
+        # configuration passes through here.
         if not self.api_base_url:
             return self
-        parsed = urlparse(self.api_base_url)
         example = (
-            "for example 'https://api.SUBDOMAIN.ghe.com' (Enterprise Cloud with data residency) or "
+            "Use 'https://api.SUBDOMAIN.ghe.com' (Enterprise Cloud with data residency) or "
             "'https://HOSTNAME/api/v3' (Enterprise Server). Leave it empty to use github.com."
         )
-        if parsed.scheme != "https" or not parsed.hostname:
-            raise UserException(f"API Base URL '{self.api_base_url}' must be an absolute https URL, {example}")
-        # Userinfo would be echoed back in the client's network-error message and land in the job
-        # log, so a pasted 'https://user:token@host' would leak the token. Reject it at the field.
-        if parsed.username or parsed.password:
+        parsed = urlparse(self.api_base_url)
+        # Userinfo is checked FIRST and on the raw string, so a credentialed URL can never reach a
+        # later branch that would have interpolated it.
+        if "@" in self.api_base_url or parsed.username or parsed.password:
             raise UserException(
                 "API Base URL must not contain a username or password. Put the credential in the "
                 "GitHub Personal Access Token field instead."
             )
-        # A query/fragment/parameter is always a paste accident here, and it would be concatenated
-        # INTO the middle of every request path ('.../api/v3?x=1/repos/o/r/issues').
-        if parsed.query or parsed.fragment or parsed.params:
-            raise UserException(
-                f"API Base URL '{self.api_base_url}' must be a plain base URL with no query string "
-                f"or fragment, {example}"
-            )
+        # Check the RAW characters, not urlparse's fields. A bare trailing '?' or '#' parses to an
+        # EMPTY query/fragment, so a field check passes it, yet it still truncates every request:
+        # 'https://host/api/v3#' + '/rate_limit' is sent as just '/api/v3'. That returns 200 from
+        # the API root, so testConnection would pass and every run would fetch the wrong thing.
+        if any(char in self.api_base_url for char in "?#;"):
+            raise UserException(f"API Base URL must be a plain base URL with no query string or fragment. {example}")
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise UserException(f"API Base URL must be an absolute https URL. {example}")
         # The Keboola OAuth broker holds ONE consumer per component id, registered against
         # github.com, so it can only ever return a github.com token. Sending that token to an
         # Enterprise host fails with an opaque 401; fail here with the reason instead.

@@ -516,7 +516,21 @@ class Component(ComponentBase):
         except UserException as exc:
             if "(HTTP 404)" not in str(exc):
                 raise
-            self.client.get_response("/user")
+            try:
+                self.client.get_response("/user")
+            except UserException as fallback_exc:
+                # Both probes 404 on a custom host = the base URL does not point at a REST API
+                # root (the classic miss is an Enterprise Server URL without the '/api/v3'
+                # suffix). Say that, instead of the generic 404 text about organization and
+                # repository names the user has not entered yet.
+                if "(HTTP 404)" in str(fallback_exc) and self.cfg.api_base_url:
+                    raise UserException(
+                        "The configured API Base URL does not look like a GitHub REST API root: "
+                        "both /rate_limit and /user returned 404. Use "
+                        "'https://api.SUBDOMAIN.ghe.com' for Enterprise Cloud with data residency, "
+                        "or 'https://HOSTNAME/api/v3' (note the '/api/v3') for Enterprise Server."
+                    ) from fallback_exc
+                raise
 
     @sync_action("listOrganizations")
     def list_organizations(self) -> list[SelectElement]:

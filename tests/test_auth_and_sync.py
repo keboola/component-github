@@ -403,7 +403,27 @@ def test_test_connection_still_fails_on_bad_token(tmp_path):
     config = {"parameters": {"auth_type": "pat", "#github_token": "ghp_bad"}}
     responses.add(responses.GET, "https://api.github.com/rate_limit", json={"message": "Bad creds"}, status=401)
     comp = _component(_datadir(tmp_path, config), patch_client=False)
+    # Keep the stronger assertions from 38d1cb5: exit code AND no fallback call on a non-404.
     with pytest.raises(SystemExit) as exit_info:
         comp.test_connection()
     assert exit_info.value.code == 1
     assert len(responses.calls) == 1  # no /user fallback on a non-404 error
+
+
+@responses.activate
+def test_test_connection_reports_a_bad_base_url_when_both_probes_404(tmp_path, capsys):
+    """Enterprise Server URL missing '/api/v3': blame the base URL, not the org/repo name."""
+    config = {
+        "parameters": {
+            "auth_type": "pat",
+            "#github_token": "ghp_x",
+            "api_base_url": "https://ghe.example.com",
+        }
+    }
+    for path in ("/rate_limit", "/user"):
+        responses.add(responses.GET, f"https://ghe.example.com{path}", json={"message": "Not Found"}, status=404)
+    comp = _component(_datadir(tmp_path, config), patch_client=False)
+    with pytest.raises(SystemExit):
+        comp.test_connection()
+    # The @sync_action wrapper writes the UserException to stderr, then exits 1.
+    assert "does not look like a GitHub REST API root" in capsys.readouterr().err

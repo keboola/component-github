@@ -321,8 +321,23 @@ def test_api_base_url_must_be_absolute_https_url(bad):
         Configuration(auth_type="pat", api_base_url=bad, **{"#github_token": "ghp_x"})
 
 
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "https://user:ghp_secret@ghe.example.com/api/v3",
+        "http://user:ghp_secret@ghe.example.com/api/v3",  # bad scheme too: userinfo must win
+        "https://ghe.example.com/api/v3?access_token=ghp_secret",  # '@'-free, caught by the ? rule
+    ],
+)
+def test_api_base_url_never_echoes_a_credential(bad):
+    """A rejected URL must not be echoed: the exception text lands in the job log."""
+    with pytest.raises(UserException) as excinfo:
+        Configuration(auth_type="pat", api_base_url=bad, **{"#github_token": "ghp_x"})
+    assert "ghp_secret" not in str(excinfo.value)
+
+
 def test_api_base_url_rejects_embedded_credentials():
-    """Userinfo is echoed into the client's network-error message, so it would leak into job logs."""
+    """Userinfo would reach the client's network-error message and land in the job log."""
     with pytest.raises(UserException, match="must not contain a username or password"):
         Configuration(
             auth_type="pat",
@@ -333,10 +348,18 @@ def test_api_base_url_rejects_embedded_credentials():
 
 @pytest.mark.parametrize(
     "bad",
-    ["https://ghe.example.com/api/v3?x=1", "https://ghe.example.com/api/v3#frag"],
+    [
+        "https://ghe.example.com/api/v3?x=1",
+        "https://ghe.example.com/api/v3#frag",
+        # Bare '?'/'#' parse to an EMPTY query/fragment, so a urlparse-field check lets them
+        # through — but they still truncate every request path to '/api/v3'.
+        "https://ghe.example.com/api/v3?",
+        "https://ghe.example.com/api/v3#",
+        "https://ghe.example.com/api/v3;p=1",
+    ],
 )
 def test_api_base_url_rejects_query_and_fragment(bad):
-    """A query/fragment would be concatenated into the MIDDLE of every request path."""
+    """A query/fragment would truncate or mangle every request path."""
     with pytest.raises(UserException, match="no query string"):
         Configuration(auth_type="pat", api_base_url=bad, **{"#github_token": "ghp_x"})
 
