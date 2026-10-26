@@ -51,6 +51,19 @@
         }
       }
     },
+    "api_base_url": {
+      "type": "string",
+      "title": "GitHub API Base URL (Enterprise only)",
+      "description": "Leave empty for github.com. Set it only if you use GitHub Enterprise.",
+      "default": "",
+      "propertyOrder": 40,
+      "options": {
+        "inputAttributes": {
+          "placeholder": "https://api.SUBDOMAIN.ghe.com"
+        },
+        "tooltip": "The REST API root of your GitHub Enterprise host.\n\n- **Enterprise Cloud with data residency** (`SUBDOMAIN.ghe.com`): use `https://api.SUBDOMAIN.ghe.com`.\n- **Enterprise Server** (self-hosted): use `https://HOSTNAME/api/v3`.\n\nEnterprise hosts require a Personal Access Token created on that host — OAuth works on github.com only. If your Enterprise tenant restricts access by IP, allow your Keboola stack's outbound IP addresses."
+      }
+    },
     "debug": {
       "type": "boolean",
       "title": "Debug Mode",

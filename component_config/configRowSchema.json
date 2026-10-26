@@ -352,7 +352,7 @@
       "description": "A GitHub GraphQL query. For pagination, select pageInfo { hasNextPage endCursor } and declare a $cursor variable used as after: $cursor.",
       "propertyOrder": 91,
       "options": {
-        "tooltip": "Runs against https://api.github.com/graphql with your token. The result is flattened into one table (objects become parent_child columns; nested lists become a JSON cell).",
+        "tooltip": "Runs against the GraphQL API of your configured host (https://api.github.com/graphql unless an API Base URL is set) with your token. The result is flattened into one table (objects become parent_child columns; nested lists become a JSON cell).",
         "dependencies": { "endpoint": ["graphql_query"], "query_template": ["custom"] }
       }
     },

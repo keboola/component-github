@@ -22,6 +22,7 @@ Features
 | Native data types       | Typed output (`INTEGER`/`TIMESTAMP`/`BOOLEAN`/`STRING`).     |
 | Rate-limit handling     | Bounded wait-and-retry on the 5000 req/hr core budget.      |
 | Sync-action dropdowns   | Org / repository / team pickers; connection test.           |
+| GitHub Enterprise       | Optional `api_base_url` targets a GHE.com / GHES host.      |
 
 Authentication
 ==============
@@ -37,6 +38,27 @@ classic (`ghp_…`) or fine-grained (`github_pat_…`) PAT in the GitHub UI with
 `read:org` and `repo` scopes (`repo` covers private-repo reads; `read:org` covers
 org/team/member data). For SAML-SSO organizations the PAT must be **SSO-authorized**, or
 org/repo endpoints return 403/404.
+
+GitHub Enterprise
+-----------------
+
+The optional root field `api_base_url` points the component at a GitHub Enterprise host. Leave
+it empty (the default) for github.com — every existing configuration keeps that behaviour.
+
+| Flavour                                 | `api_base_url`                  | GraphQL endpoint used          |
+| --------------------------------------- | ------------------------------- | ------------------------------ |
+| github.com (default)                    | *(empty)*                       | `https://api.github.com/graphql` |
+| Enterprise Cloud with data residency    | `https://api.SUBDOMAIN.ghe.com` | `<base>/graphql`                 |
+| Enterprise Server (self-hosted)         | `https://HOSTNAME/api/v3`       | `https://HOSTNAME/api/graphql`   |
+
+Enterprise Server is the reason GraphQL is derived rather than appended: its REST root is
+`/api/v3` but its GraphQL endpoint is `/api/graphql` (see `GitHubClient._derive_graphql_url`).
+
+Enterprise hosts require **`auth_type = "pat"`** with a token created on that host. Keboola's
+OAuth broker holds one consumer per component id, registered against github.com, so OAuth can
+only ever return a github.com token; the config model rejects `oauth` + `api_base_url` with that
+reason instead of letting it fail later as an opaque 401. If the Enterprise tenant restricts
+access by IP address, the Keboola stack's outbound IPs must be allowed.
 
 OAuth
 -----
