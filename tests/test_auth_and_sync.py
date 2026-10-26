@@ -57,6 +57,7 @@ def test_oauth_path_resolves_injected_token_and_runs(tmp_path):
             comp = Component()
             # token resolved from #data was handed to the client
             assert client_cls.call_args.kwargs["token"] == "gho_injected"
+            assert client_cls.call_args.kwargs["base_url"] == "https://api.github.com"
         comp.client.fetch.return_value = iter([{"id": 1, "name": "Hello"}])  # ty: ignore[unresolved-attribute]
         comp.run()
     assert (data_dir / "out" / "tables" / "repository.csv").exists()
@@ -336,6 +337,30 @@ def test_client_gets_github_com_base_url_by_default(tmp_path):
     assert client_cls.call_args.kwargs["base_url"] == "https://api.github.com"
 
 
+@pytest.mark.parametrize("auth_type", ["pat", "oauth"])
+@pytest.mark.parametrize("cleared", ["", "  ", None])
+def test_cleared_base_url_keeps_github_com(tmp_path, auth_type, cleared):
+    """A field saved empty or null by the UI behaves like an absent one, for both auth methods."""
+    config = {
+        "parameters": {
+            "auth_type": auth_type,
+            "#github_token": "ghp_x",
+            "api_base_url": cleared,
+            "endpoint": "repository",
+        },
+        "authorization": {
+            "oauth_api": {"credentials": {"#data": '{"access_token":"gho_injected","token_type":"bearer"}'}}
+        },
+    }
+    data_dir = _datadir(tmp_path, config)
+    with mock.patch.dict(os.environ, {"KBC_DATADIR": str(data_dir)}):
+        from component import Component
+
+        with mock.patch("component.GitHubClient") as client_cls:
+            Component()
+    assert client_cls.call_args.kwargs["base_url"] == "https://api.github.com"
+
+
 def test_client_gets_configured_enterprise_base_url(tmp_path):
     """api_base_url is wired through to the client — the one line that makes the feature work."""
     config = {
@@ -378,5 +403,7 @@ def test_test_connection_still_fails_on_bad_token(tmp_path):
     config = {"parameters": {"auth_type": "pat", "#github_token": "ghp_bad"}}
     responses.add(responses.GET, "https://api.github.com/rate_limit", json={"message": "Bad creds"}, status=401)
     comp = _component(_datadir(tmp_path, config), patch_client=False)
-    with pytest.raises(UserException):
-        comp._call_rate_limit()
+    with pytest.raises(SystemExit) as exit_info:
+        comp.test_connection()
+    assert exit_info.value.code == 1
+    assert len(responses.calls) == 1  # no /user fallback on a non-404 error
